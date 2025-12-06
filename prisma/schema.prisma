@@ -1,0 +1,199 @@
+// SRGG Marketplace - Standalone SQLite Schema
+// No Docker required!
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = "file:./dev.db"
+}
+
+// Core System
+model Tenant {
+  id        String   @id @default(cuid())
+  name      String
+  slug      String   @unique
+  country   String
+  currency  String   @default("USD")
+  status    String   @default("ACTIVE")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  users       User[]
+  producers   Producer[]
+  listings    Listing[]
+  orders      Order[]
+}
+
+model User {
+  id            String    @id @default(cuid())
+  tenantId      String
+  email         String
+  password      String?
+  name          String
+  phone         String?
+  role          String    @default("PRODUCER")
+  permissions   String    @default("[]")
+  status        String    @default("ACTIVE")
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  lastLoginAt   DateTime?
+
+  tenant    Tenant     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  producer  Producer?
+  orders    Order[]
+  sessions  Session[]
+
+  @@unique([tenantId, email])
+}
+
+model Session {
+  id        String   @id @default(cuid())
+  userId    String
+  token     String   @unique
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model Producer {
+  id                 String   @id @default(cuid())
+  tenantId           String
+  userId             String   @unique
+  srggEid            String   @unique
+  type               String
+  name               String
+  phone              String
+  email              String?
+  rating             Float?   @default(0)
+  verificationStatus String   @default("PENDING")
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  tenant   Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user     User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  listings Listing[]
+  parcels  Parcel[]
+}
+
+model Parcel {
+  id          String   @id @default(cuid())
+  producerId  String
+  parcelNumber String
+  area        Float
+  unit        String   @default("hectares")
+  location    String   @default("{}")
+  ownership   String
+  createdAt   DateTime @default(now())
+
+  producer Producer @relation(fields: [producerId], references: [id], onDelete: Cascade)
+}
+
+model Commodity {
+  id          String   @id @default(cuid())
+  name        String   @unique
+  category    String
+  unit        String
+  description String?
+  createdAt   DateTime @default(now())
+
+  listings Listing[]
+}
+
+model Listing {
+  id           String   @id @default(cuid())
+  tenantId     String
+  producerId   String
+  commodityId  String
+  title        String
+  description  String?
+  quantity     Float
+  unit         String
+  pricePerUnit Float
+  totalPrice   Float
+  currency     String   @default("USD")
+  status       String   @default("DRAFT")
+  location     String   @default("{}")
+  images       String   @default("[]")
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  tenant    Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  producer  Producer  @relation(fields: [producerId], references: [id], onDelete: Cascade)
+  commodity Commodity @relation(fields: [commodityId], references: [id])
+  orders    Order[]
+  tokens    Token[]
+}
+
+model Order {
+  id            String   @id @default(cuid())
+  tenantId      String
+  orderNumber   String   @unique
+  buyerId       String
+  listingId     String
+  quantity      Float
+  pricePerUnit  Float
+  totalPrice    Float
+  currency      String
+  status        String   @default("PENDING")
+  paymentStatus String   @default("PENDING")
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  tenant   Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  buyer    User     @relation(fields: [buyerId], references: [id])
+  listing  Listing  @relation(fields: [listingId], references: [id])
+  payments Payment[]
+}
+
+model Token {
+  id        String   @id @default(cuid())
+  listingId String
+  tokenType String
+  owner     String
+  status    String   @default("ACTIVE")
+  metadata  String   @default("{}")
+  createdAt DateTime @default(now())
+
+  listing Listing @relation(fields: [listingId], references: [id])
+}
+
+model Payment {
+  id            String   @id @default(cuid())
+  orderId       String
+  paymentNumber String   @unique
+  amount        Float
+  currency      String   @default("USD")
+  method        String
+  status        String
+  createdAt     DateTime @default(now())
+
+  order Order @relation(fields: [orderId], references: [id])
+}
+
+model Certificate {
+  id                String   @id @default(cuid())
+  certificateNumber String   @unique
+  type              String
+  issuedTo          String
+  issuedBy          String
+  issuedAt          DateTime @default(now())
+  expiresAt         DateTime?
+  status            String   @default("ACTIVE")
+  metadata          String   @default("{}")
+}
+
+model InsurancePolicy {
+  id            String   @id @default(cuid())
+  policyNumber  String   @unique
+  insuredValue  Float
+  premium       Float
+  currency      String   @default("USD")
+  coverageStart DateTime
+  coverageEnd   DateTime
+  status        String   @default("ACTIVE")
+  createdAt     DateTime @default(now())
+}

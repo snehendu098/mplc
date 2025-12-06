@@ -1,0 +1,130 @@
+# Azure DevOps CI/CD Pipeline - Docker/Container Deployment
+# Builds Docker image and deploys to Azure Container Apps or AKS
+
+trigger:
+  branches:
+    include:
+      - main
+      - develop
+
+pr:
+  branches:
+    include:
+      - main
+
+variables:
+  - name: dockerRegistryServiceConnection
+    value: 'AzureContainerRegistry'
+  - name: imageRepository
+    value: 'srgg-marketplace'
+  - name: containerRegistry
+    value: '$(ACR_NAME).azurecr.io'
+  - name: dockerfilePath
+    value: '$(Build.SourcesDirectory)/Dockerfile'
+  - name: tag
+    value: '$(Build.BuildId)'
+  - name: isMain
+    value: $[eq(variables['Build.SourceBranch'], 'refs/heads/main')]
+
+stages:
+  # ============================================
+  # BUILD & PUSH DOCKER IMAGE
+  # ============================================
+  - stage: Build
+    displayName: 'Build & Push Docker Image'
+    jobs:
+      - job: BuildAndPush
+        displayName: 'Build and Push'
+        pool:
+          vmImage: 'ubuntu-latest'
+        steps:
+          - task: Docker@2
+            displayName: 'Build Docker image'
+            inputs:
+              containerRegistry: $(dockerRegistryServiceConnection)
+              repository: $(imageRepository)
+              command: 'build'
+              Dockerfile: $(dockerfilePath)
+              tags: |
+                $(tag)
+                latest
+
+          - task: Docker@2
+            displayName: 'Push to Container Registry'
+            inputs:
+              containerRegistry: $(dockerRegistryServiceConnection)
+              repository: $(imageRepository)
+              command: 'push'
+              tags: |
+                $(tag)
+                latest
+
+  # ============================================
+  # DEPLOY TO STAGING
+  # ============================================
+  - stage: DeployStaging
+    displayName: 'Deploy to Staging'
+    dependsOn: Build
+    condition: and(succeeded(), ne(variables.isMain, true))
+    jobs:
+      - deployment: DeployStaging
+        displayName: 'Deploy to Staging'
+        pool:
+          vmImage: 'ubuntu-latest'
+        environment: 'staging'
+        strategy:
+          runOnce:
+            deploy:
+              steps:
+                - task: AzureCLI@2
+                  displayName: 'Deploy to Azure Container Apps (Staging)'
+                  inputs:
+                    azureSubscription: '$(AzureSubscription)'
+                    scriptType: 'bash'
+                    scriptLocation: 'inlineScript'
+                    inlineScript: |
+                      az containerapp update \
+                        --name srgg-marketplace-staging \
+                        --resource-group $(ResourceGroup) \
+                        --image $(containerRegistry)/$(imageRepository):$(tag)
+
+  # ============================================
+  # DEPLOY TO PRODUCTION
+  # ============================================
+  - stage: DeployProduction
+    displayName: 'Deploy to Production'
+    dependsOn: Build
+    condition: and(succeeded(), eq(variables.isMain, true))
+    jobs:
+      - deployment: DeployProduction
+        displayName: 'Deploy to Production'
+        pool:
+          vmImage: 'ubuntu-latest'
+        environment: 'production'
+        strategy:
+          runOnce:
+            deploy:
+              steps:
+                - task: AzureCLI@2
+                  displayName: 'Deploy to Azure Container Apps (Production)'
+                  inputs:
+                    azureSubscription: '$(AzureSubscription)'
+                    scriptType: 'bash'
+                    scriptLocation: 'inlineScript'
+                    inlineScript: |
+                      az containerapp update \
+                        --name srgg-marketplace-prod \
+                        --resource-group $(ResourceGroup) \
+                        --image $(containerRegistry)/$(imageRepository):$(tag)
+
+                - task: AzureCLI@2
+                  displayName: 'Tag image as production'
+                  inputs:
+                    azureSubscription: '$(AzureSubscription)'
+                    scriptType: 'bash'
+                    scriptLocation: 'inlineScript'
+                    inlineScript: |
+                      az acr import \
+                        --name $(ACR_NAME) \
+                        --source $(containerRegistry)/$(imageRepository):$(tag) \
+                        --image $(imageRepository):production

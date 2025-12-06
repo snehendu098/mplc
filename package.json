@@ -1,0 +1,61 @@
+{
+  "name": "srgg-marketplace-standalone",
+  "version": "1.0.0",
+  "description": "SRGG Marketplace - Standalone Prototype (No Docker Required)",
+  "private": true,
+  "scripts": {
+    "dev": "next dev -p 3005 --webpack",
+    "build": "prisma generate && next build",
+    "start": "next start",
+    "setup": "npm install && npx prisma generate && npx prisma db push && npx prisma db seed && echo '\n✅ Setup complete! Run: npm run dev'",
+    "reset": "rm -f prisma/dev.db && npx prisma db push && npx prisma db seed",
+    "seed": "tsx prisma/seed.ts"
+  },
+  "dependencies": {
+    "@prisma/client": "^6.1.0",
+    "@radix-ui/react-avatar": "^1.1.2",
+    "@radix-ui/react-dialog": "^1.1.4",
+    "@radix-ui/react-dropdown-menu": "^2.1.4",
+    "@radix-ui/react-label": "^2.1.1",
+    "@radix-ui/react-select": "^2.1.4",
+    "@radix-ui/react-separator": "^1.1.1",
+    "@radix-ui/react-slot": "^1.1.1",
+    "@radix-ui/react-tabs": "^1.1.2",
+    "@radix-ui/react-toast": "^1.2.4",
+    "bcryptjs": "^2.4.3",
+    "better-sqlite3": "^12.5.0",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "date-fns": "^4.1.0",
+    "jose": "^5.9.6",
+    "lucide-react": "^0.468.0",
+    "next": "16.0.7",
+    "react": "19.2.0",
+    "react-dom": "19.2.0",
+    "react-hook-form": "^7.54.2",
+    "recharts": "^2.14.1",
+    "tailwind-merge": "^2.6.0",
+    "tailwindcss-animate": "^1.0.7",
+    "zod": "^3.24.1",
+    "zustand": "^5.0.2"
+  },
+  "devDependencies": {
+    "@types/bcryptjs": "^2.4.6",
+    "@types/node": "^20",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "eslint": "^9",
+    "eslint-config-next": "^16.0.7",
+    "postcss": "^4",
+    "prettier": "^3.4.2",
+    "prisma": "^6.1.0",
+    "source-map": "^0.7.6",
+    "sqlite3": "^5.1.7",
+    "tailwindcss": "^4",
+    "tsx": "^4.19.2",
+    "typescript": "^5"
+  },
+  "prisma": {
+    "seed": "tsx prisma/seed.ts"
+  }
+}
