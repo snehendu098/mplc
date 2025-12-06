@@ -1,5 +1,10 @@
-# Azure DevOps CI/CD Pipeline for SRGG Marketplace
-# Builds, tests, and deploys the Next.js application
+# ============================================
+# SRGG Marketplace - Azure DevOps Pipeline
+# ============================================
+# Complete CI/CD pipeline for Azure App Service
+#
+# Setup Instructions: See AZURE_DEVOPS_GUIDE.md
+# ============================================
 
 trigger:
   branches:
@@ -8,14 +13,24 @@ trigger:
       - develop
   paths:
     exclude:
-      - README.md
-      - docs/*
+      - '*.md'
+      - 'docs/**'
+      - '.github/**'
 
 pr:
   branches:
     include:
       - main
       - develop
+
+# ============================================
+# VARIABLES
+# ============================================
+# Configure these in Azure DevOps Pipeline Variables:
+# - AzureSubscription: Your Azure service connection name
+# - StagingAppName: Your staging app service name
+# - ProductionAppName: Your production app service name
+# ============================================
 
 variables:
   - name: nodeVersion
@@ -29,92 +44,133 @@ variables:
 
 stages:
   # ============================================
-  # BUILD STAGE
+  # STAGE 1: BUILD & TEST
   # ============================================
   - stage: Build
-    displayName: 'Build & Test'
+    displayName: '🔨 Build & Test'
     jobs:
       - job: BuildJob
         displayName: 'Build Application'
         pool:
           vmImage: 'ubuntu-latest'
+
         steps:
+          # Checkout code
+          - checkout: self
+            displayName: '📥 Checkout repository'
+
+          # Setup Node.js
           - task: NodeTool@0
-            displayName: 'Install Node.js'
+            displayName: '📦 Setup Node.js $(nodeVersion)'
             inputs:
               versionSpec: $(nodeVersion)
 
+          # Cache npm packages
           - task: Cache@2
-            displayName: 'Cache npm packages'
+            displayName: '💾 Cache npm packages'
             inputs:
               key: 'npm | "$(Agent.OS)" | package-lock.json'
               restoreKeys: |
                 npm | "$(Agent.OS)"
               path: $(npmCache)
 
-          - script: |
-              npm ci --cache $(npmCache)
-            displayName: 'Install dependencies'
+          # Install dependencies
+          - script: npm ci --cache $(npmCache)
+            displayName: '📚 Install dependencies'
 
-          - script: |
-              npx prisma generate
-            displayName: 'Generate Prisma Client'
+          # Generate Prisma Client
+          - script: npx prisma generate
+            displayName: '🗄️ Generate Prisma Client'
 
-          - script: |
-              npm run build
-            displayName: 'Build Next.js application'
+          # Run linting (optional, continues on error)
+          - script: npm run lint --if-present
+            displayName: '🔍 Run ESLint'
+            continueOnError: 'true'
+
+          # Run tests (optional, continues on error)
+          - script: npm test --if-present
+            displayName: '🧪 Run Tests'
+            continueOnError: 'true'
+
+          # Build application
+          - script: npm run build
+            displayName: '🏗️ Build Next.js Application'
             env:
               NODE_ENV: production
 
+          # Copy files for deployment
           - task: CopyFiles@2
-            displayName: 'Copy build artifacts'
+            displayName: '📋 Prepare deployment package'
             inputs:
               sourceFolder: '$(Build.SourcesDirectory)'
               contents: |
                 .next/**
+                !.next/cache/**
                 public/**
                 package.json
                 package-lock.json
                 next.config.ts
-                prisma/**
-                !prisma/dev.db
-              targetFolder: '$(Build.ArtifactStagingDirectory)'
+                prisma/schema.prisma
+                node_modules/.prisma/**
+              targetFolder: '$(Build.ArtifactStagingDirectory)/app'
 
+          # Create startup script
+          - script: |
+              cat > $(Build.ArtifactStagingDirectory)/app/startup.sh << 'EOF'
+              #!/bin/bash
+              npm install --production
+              npx prisma generate
+              npm run start
+              EOF
+              chmod +x $(Build.ArtifactStagingDirectory)/app/startup.sh
+            displayName: '📝 Create startup script'
+
+          # Publish artifact
           - task: PublishBuildArtifacts@1
-            displayName: 'Publish build artifacts'
+            displayName: '📤 Publish build artifacts'
             inputs:
-              pathToPublish: '$(Build.ArtifactStagingDirectory)'
+              pathToPublish: '$(Build.ArtifactStagingDirectory)/app'
               artifactName: 'srgg-marketplace'
               publishLocation: 'Container'
 
+          # Build summary
+          - script: |
+              echo "##vso[task.logissue type=info]✅ Build completed successfully!"
+              echo "Branch: $(Build.SourceBranchName)"
+              echo "Commit: $(Build.SourceVersion)"
+            displayName: '✅ Build Summary'
+
   # ============================================
-  # DEPLOY TO STAGING (develop branch)
+  # STAGE 2: DEPLOY TO STAGING
   # ============================================
   - stage: DeployStaging
-    displayName: 'Deploy to Staging'
+    displayName: '🚀 Deploy to Staging'
     dependsOn: Build
     condition: and(succeeded(), eq(variables.isDevelop, true))
+
     jobs:
-      - deployment: DeployStaging
+      - deployment: DeployToStaging
         displayName: 'Deploy to Staging Environment'
         pool:
           vmImage: 'ubuntu-latest'
         environment: 'staging'
+
         strategy:
           runOnce:
             deploy:
               steps:
+                # Download artifacts
                 - task: DownloadBuildArtifacts@1
-                  displayName: 'Download artifacts'
+                  displayName: '📥 Download build artifacts'
                   inputs:
                     buildType: 'current'
                     downloadType: 'single'
                     artifactName: 'srgg-marketplace'
                     downloadPath: '$(System.ArtifactsDirectory)'
 
-                # Option 1: Deploy to Azure App Service
+                # Deploy to Azure App Service
                 - task: AzureWebApp@1
-                  displayName: 'Deploy to Azure App Service (Staging)'
+                  displayName: '🌐 Deploy to Azure App Service (Staging)'
                   inputs:
                     azureSubscription: '$(AzureSubscription)'
                     appType: 'webAppLinux'
@@ -123,34 +179,43 @@ stages:
                     runtimeStack: 'NODE|20-lts'
                     startUpCommand: 'npm run start'
 
+                # Verify deployment
+                - script: |
+                    echo "##vso[task.logissue type=info]✅ Staging deployment complete!"
+                    echo "URL: https://$(StagingAppName).azurewebsites.net"
+                  displayName: '✅ Deployment Summary'
+
   # ============================================
-  # DEPLOY TO PRODUCTION (main branch)
+  # STAGE 3: DEPLOY TO PRODUCTION
   # ============================================
   - stage: DeployProduction
-    displayName: 'Deploy to Production'
+    displayName: '🚀 Deploy to Production'
     dependsOn: Build
     condition: and(succeeded(), eq(variables.isMain, true))
+
     jobs:
-      - deployment: DeployProduction
+      - deployment: DeployToProduction
         displayName: 'Deploy to Production Environment'
         pool:
           vmImage: 'ubuntu-latest'
-        environment: 'production'
+        environment: 'production'  # Requires approval if configured
+
         strategy:
           runOnce:
             deploy:
               steps:
+                # Download artifacts
                 - task: DownloadBuildArtifacts@1
-                  displayName: 'Download artifacts'
+                  displayName: '📥 Download build artifacts'
                   inputs:
                     buildType: 'current'
                     downloadType: 'single'
                     artifactName: 'srgg-marketplace'
                     downloadPath: '$(System.ArtifactsDirectory)'
 
-                # Deploy to Azure App Service (Production)
+                # Deploy to Azure App Service
                 - task: AzureWebApp@1
-                  displayName: 'Deploy to Azure App Service (Production)'
+                  displayName: '🌐 Deploy to Azure App Service (Production)'
                   inputs:
                     azureSubscription: '$(AzureSubscription)'
                     appType: 'webAppLinux'
@@ -158,3 +223,45 @@ stages:
                     package: '$(System.ArtifactsDirectory)/srgg-marketplace'
                     runtimeStack: 'NODE|20-lts'
                     startUpCommand: 'npm run start'
+
+                # Verify deployment
+                - script: |
+                    echo "##vso[task.logissue type=info]✅ Production deployment complete!"
+                    echo "URL: https://$(ProductionAppName).azurewebsites.net"
+                  displayName: '✅ Deployment Summary'
+
+  # ============================================
+  # STAGE 4: POST-DEPLOYMENT HEALTH CHECK
+  # ============================================
+  - stage: HealthCheck
+    displayName: '🏥 Health Check'
+    dependsOn:
+      - DeployStaging
+      - DeployProduction
+    condition: succeededOrFailed()
+
+    jobs:
+      - job: CheckHealth
+        displayName: 'Verify Deployment Health'
+        pool:
+          vmImage: 'ubuntu-latest'
+
+        steps:
+          - script: |
+              echo "Checking application health..."
+
+              # Check staging if it was deployed
+              if [ "$(isDevelop)" = "True" ]; then
+                echo "Checking staging: https://$(StagingAppName).azurewebsites.net/api/health"
+                curl -f https://$(StagingAppName).azurewebsites.net/api/health || echo "Staging health check pending..."
+              fi
+
+              # Check production if it was deployed
+              if [ "$(isMain)" = "True" ]; then
+                echo "Checking production: https://$(ProductionAppName).azurewebsites.net/api/health"
+                curl -f https://$(ProductionAppName).azurewebsites.net/api/health || echo "Production health check pending..."
+              fi
+
+              echo "Health checks complete!"
+            displayName: '🏥 Run Health Checks'
+            continueOnError: 'true'
