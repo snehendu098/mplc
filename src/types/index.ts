@@ -13,7 +13,6 @@ import {
   InsurancePolicy,
   HedgePosition,
   Payment,
-  IoTDevice,
 } from '@prisma/client';
 
 // ============================================================================
@@ -229,24 +228,24 @@ export interface InsuranceQuoteRequest {
 
 export interface CreateInsurancePolicyRequest {
   tenantId: string;
-  tokenId?: string;
-  insuredType: string;
-  insuredValue: number;
+  listingId?: string;
+  type: string; // CROP, LIVESTOCK, MARITIME, MINERAL, CARBON, CULTURAL_IP, SUPPLY_CHAIN
+  assetName: string;
+  assetType: string; // LISTING, PRODUCER, SHIPMENT
+  coverageAmount: number;
   premium: number;
   currency: string;
   coverageStart: Date;
   coverageEnd: Date;
-  riskProfile: any;
-  terms: any;
+  terms?: Record<string, unknown>;
 }
 
 export interface CreateInsuranceClaimRequest {
   policyId: string;
-  claimType: string;
-  claimAmount: number;
-  description: string;
+  amount: number;
+  reason: string;
   evidence: string[];
-  triggerData?: any;
+  triggerData?: Record<string, unknown>;
 }
 
 // Hedging

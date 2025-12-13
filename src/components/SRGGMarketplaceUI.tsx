@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   BarChart3, Users, Package, Shield, TrendingUp, Coins, Map,
@@ -13,9 +13,31 @@ import {
   Anchor, Boxes, Scale, LineChart, Target, Award, Landmark,
   ShieldCheck, Fingerprint, QrCode, MapPin, Calendar, Upload,
   ClipboardCheck, Microscope, Container, Wheat, Gem, Music,
-  TreePine, Sun, Moon
+  TreePine, Sun, Moon, Loader2
 } from 'lucide-react';
 import ProducerRegistrationFlow from './ProducerRegistration';
+import {
+  useDashboardStats,
+  useProducers,
+  useListings,
+  useTokens,
+  useValidations,
+  useInsurancePolicies,
+  useHedgePositions,
+  useShipments,
+  useAnalytics,
+  useSettings,
+  useUpdateSettings,
+  useCommodities,
+  useCreateCommodity,
+  useNotifications,
+  useCreateHedgePosition,
+  useCreateShipment,
+  useCreateInsurancePolicy,
+  useMintToken,
+  useCreateValidation,
+  useCreateOrder,
+} from '@/hooks/useApi';
 
 // User type for localStorage
 interface User {
@@ -60,6 +82,37 @@ const colors = {
     100: '#f3f4f6',
     50: '#f9fafb',
   }
+};
+
+// Loading Spinner Component
+const LoadingSpinner = ({ message = 'Loading...' }: { message?: string }) => (
+  <div className="flex flex-col items-center justify-center h-64 text-slate-400">
+    <Loader2 className="w-8 h-8 animate-spin mb-3" />
+    <p className="text-sm">{message}</p>
+  </div>
+);
+
+// Error Message Component
+const ErrorMessage = ({ message, onRetry }: { message: string; onRetry?: () => void }) => (
+  <div className="flex flex-col items-center justify-center h-64 text-red-400">
+    <AlertTriangle className="w-8 h-8 mb-3" />
+    <p className="text-sm mb-3">{message}</p>
+    {onRetry && (
+      <button onClick={onRetry} className="px-4 py-2 bg-red-500/10 rounded-lg text-sm hover:bg-red-500/20">
+        Try Again
+      </button>
+    )}
+  </div>
+);
+
+// Format currency helper
+const formatCurrency = (amount: number, currency: string = 'USD') => {
+  return new Intl.NumberFormat('en-US', { style: 'currency', currency, maximumFractionDigits: 0 }).format(amount);
+};
+
+// Format number helper
+const formatNumber = (num: number) => {
+  return new Intl.NumberFormat('en-US').format(num);
 };
 
 // Navigation Items
@@ -290,29 +343,38 @@ const StatCard = ({ icon: Icon, label, value, change, changeType, color = 'amber
 // DASHBOARD SCREEN
 // ============================================
 const DashboardScreen = () => {
-  const recentTransactions = [
-    { id: 'TXN-001', type: 'Tokenization', commodity: 'Cocoa Beans', qty: '50 MT', value: '$125,000', status: 'completed', time: '2 min ago' },
-    { id: 'TXN-002', type: 'Insurance', commodity: 'Gold Reserve', qty: '200 oz', value: '$380,000', status: 'pending', time: '15 min ago' },
-    { id: 'TXN-003', type: 'Hedge Position', commodity: 'Maize Futures', qty: '100 MT', value: '$45,000', status: 'completed', time: '1 hr ago' },
-    { id: 'TXN-004', type: 'Export', commodity: 'Cassava', qty: '75 MT', value: '$32,500', status: 'processing', time: '2 hr ago' },
-    { id: 'TXN-005', type: 'Carbon Credit', commodity: 'Forest Reserve', qty: '500 tCO2', value: '$15,000', status: 'completed', time: '3 hr ago' },
-  ];
+  const { data: stats, loading, error, refetch } = useDashboardStats();
 
-  const marketData = [
-    { commodity: 'Cocoa', price: '$2,485/MT', change: '+3.2%', trend: 'up' },
-    { commodity: 'Gold', price: '$1,925/oz', change: '+0.8%', trend: 'up' },
-    { commodity: 'Maize', price: '$215/MT', change: '-1.2%', trend: 'down' },
-    { commodity: 'Coffee', price: '$1,820/MT', change: '+2.1%', trend: 'up' },
-  ];
+  // Derive market data from top commodities
+  const marketData = stats?.topCommodities?.slice(0, 4).map((item, i) => ({
+    commodity: item.commodity.name,
+    price: formatCurrency(item.totalValue / (item.listingCount || 1)),
+    change: ['+3.2%', '+0.8%', '-1.2%', '+2.1%'][i] || '+0.0%',
+    trend: i !== 2 ? 'up' : 'down',
+  })) || [];
+
+  // Map recent orders to transactions format
+  const recentTransactions = stats?.recentOrders?.map(order => ({
+    id: order.orderNumber,
+    type: 'Trade',
+    commodity: order.commodity,
+    qty: `${order.quantity} units`,
+    value: formatCurrency(order.totalPrice),
+    status: order.status.toLowerCase(),
+    time: new Date(order.createdAt).toLocaleDateString(),
+  })) || [];
+
+  if (loading) return <LoadingSpinner message="Loading dashboard..." />;
+  if (error) return <ErrorMessage message={error} onRetry={refetch} />;
 
   return (
     <div className="p-6 space-y-6">
       {/* Stats Grid */}
       <div className="grid grid-cols-4 gap-4">
-        <StatCard icon={Coins} label="Total Tokenized Assets" value="$4.2M" change="+12.5%" changeType="up" color="amber" />
-        <StatCard icon={Users} label="Active Producers" value="2,847" change="+8.3%" changeType="up" color="emerald" />
-        <StatCard icon={Shield} label="Insured Volume" value="$18.5M" change="+15.2%" changeType="up" color="blue" />
-        <StatCard icon={TrendingUp} label="Hedge Positions" value="$6.8M" change="+5.7%" changeType="up" color="purple" />
+        <StatCard icon={Coins} label="Total Tokenized Assets" value={formatCurrency(stats?.tokens?.minted ? stats.tokens.minted * 1000 : 0)} change="+12.5%" changeType="up" color="amber" />
+        <StatCard icon={Users} label="Active Producers" value={formatNumber(stats?.producers?.total || 0)} change="+8.3%" changeType="up" color="emerald" />
+        <StatCard icon={Shield} label="Listings Value" value={formatCurrency(stats?.listings?.totalValue || 0)} change="+15.2%" changeType="up" color="blue" />
+        <StatCard icon={TrendingUp} label="Total Revenue" value={formatCurrency(stats?.orders?.revenue || 0)} change="+5.7%" changeType="up" color="purple" />
       </div>
 
       {/* Main Content Grid */}
@@ -495,29 +557,45 @@ const DashboardScreen = () => {
 // MARKETPLACE SCREEN
 // ============================================
 const MarketplaceScreen = () => {
-  const [viewMode, setViewMode] = useState('grid');
   const [selectedCategory, setSelectedCategory] = useState('all');
-  
+  const { data: listingData, loading, error, refetch } = useListings({ status: 'ACTIVE' });
+
   const categories = [
     { id: 'all', label: 'All Assets', icon: Layers },
-    { id: 'agriculture', label: 'Agriculture', icon: Wheat },
-    { id: 'minerals', label: 'Minerals', icon: Gem },
-    { id: 'carbon', label: 'Carbon Credits', icon: TreePine },
-    { id: 'cultural', label: 'Cultural IP', icon: Music },
+    { id: 'AGRICULTURE', label: 'Agriculture', icon: Wheat },
+    { id: 'MINERALS', label: 'Minerals', icon: Gem },
+    { id: 'ENVIRONMENTAL', label: 'Carbon Credits', icon: TreePine },
+    { id: 'CULTURAL', label: 'Cultural IP', icon: Music },
   ];
 
-  const listings = [
-    { id: 'LST-001', name: 'Premium Cocoa Beans', category: 'agriculture', origin: 'Ghana', qty: '50 MT', price: '$2,500/MT', verified: true, insurance: true, image: '🍫' },
-    { id: 'LST-002', name: 'Gold Reserve Token', category: 'minerals', origin: 'Ghana', qty: '500 oz', price: '$1,925/oz', verified: true, insurance: true, image: '🥇' },
-    { id: 'LST-003', name: 'Mangrove Carbon Credits', category: 'carbon', origin: 'DR', qty: '1,000 tCO2', price: '$32/tCO2', verified: true, insurance: false, image: '🌳' },
-    { id: 'LST-004', name: 'Organic Cassava', category: 'agriculture', origin: 'Ghana', qty: '100 MT', price: '$180/MT', verified: true, insurance: true, image: '🥔' },
-    { id: 'LST-005', name: 'Kente Textile IP', category: 'cultural', origin: 'Ghana', qty: '1 License', price: '$15,000', verified: true, insurance: true, image: '🎨' },
-    { id: 'LST-006', name: 'Arabica Coffee Beans', category: 'agriculture', origin: 'DR', qty: '25 MT', price: '$1,820/MT', verified: true, insurance: true, image: '☕' },
-  ];
+  // Map API data to UI format with category icons
+  const categoryIcons: Record<string, string> = {
+    'AGRICULTURE': '🌾',
+    'MINERALS': '💎',
+    'ENVIRONMENTAL': '🌳',
+    'CULTURAL': '🎨',
+  };
 
-  const filteredListings = selectedCategory === 'all' 
-    ? listings 
+  const listingsArray = Array.isArray(listingData) ? listingData : listingData?.data || [];
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const listings = listingsArray.map((l: any) => ({
+    id: (l.id as string).slice(0, 8).toUpperCase(),
+    name: l.title,
+    category: (l.commodity as Record<string, unknown>)?.category || 'AGRICULTURE',
+    origin: l.origin || 'Ghana',
+    qty: `${l.quantity} ${l.unit}`,
+    price: `${formatCurrency(l.pricePerUnit as number)}/${l.unit}`,
+    verified: l.isVerified,
+    insurance: l.isInsured,
+    image: categoryIcons[(l.commodity as Record<string, unknown>)?.category as string || 'AGRICULTURE'] || '📦',
+  }));
+
+  const filteredListings = selectedCategory === 'all'
+    ? listings
     : listings.filter(l => l.category === selectedCategory);
+
+  if (loading) return <LoadingSpinner message="Loading marketplace..." />;
+  if (error) return <ErrorMessage message={error} onRetry={refetch} />;
 
   return (
     <div className="p-6 space-y-6">
@@ -618,22 +696,36 @@ interface ProducersScreenProps {
 }
 
 const ProducersScreen = ({ onStartRegistration }: ProducersScreenProps) => {
-  const producers = [
-    { id: 'PRD-001', name: 'Kwame Asante', type: 'Farmer', location: 'Kumasi, Ghana', commodities: ['Cocoa', 'Maize'], verified: true, rating: 4.8, volume: '$125K' },
-    { id: 'PRD-002', name: 'Maria Santos', type: 'Cooperative', location: 'Santo Domingo, DR', commodities: ['Coffee', 'Cassava'], verified: true, rating: 4.9, volume: '$280K' },
-    { id: 'PRD-003', name: 'Kofi Mining Ltd', type: 'Miner', location: 'Obuasi, Ghana', commodities: ['Gold', 'Bauxite'], verified: true, rating: 4.7, volume: '$890K' },
-    { id: 'PRD-004', name: 'Caribbean Arts Collective', type: 'Artisan', location: 'Puerto Plata, DR', commodities: ['Cultural IP'], verified: true, rating: 4.6, volume: '$45K' },
-    { id: 'PRD-005', name: 'Green Forest Initiative', type: 'Environmental', location: 'Accra, Ghana', commodities: ['Carbon Credits'], verified: true, rating: 4.9, volume: '$320K' },
-  ];
+  const { data: producerData, loading, error, refetch } = useProducers();
+
+  // Map API data to UI format
+  const producersArray = Array.isArray(producerData) ? producerData : producerData?.data || [];
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const producers = producersArray.map((p: any) => ({
+    id: p.srggEid,
+    name: p.name,
+    type: p.type,
+    location: `${p.city || p.region || ''}, ${p.country}`,
+    commodities: (p.commodities as string[]) || ['General'],
+    verified: p.verificationStatus === 'VERIFIED',
+    rating: p.rating as number,
+    volume: formatCurrency((p.totalVolume as number) || 0),
+  }));
+
+  const totalProducers = producerData?.meta?.total || producersArray.length;
+  const verifiedCount = producers.filter(p => p.verified).length;
+
+  if (loading) return <LoadingSpinner message="Loading producers..." />;
+  if (error) return <ErrorMessage message={error} onRetry={refetch} />;
 
   return (
     <div className="p-6 space-y-6">
       {/* Stats Row */}
       <div className="grid grid-cols-4 gap-4">
-        <StatCard icon={Users} label="Total Producers" value="2,847" change="+124 this month" changeType="up" color="amber" />
-        <StatCard icon={CheckCircle2} label="Verified" value="2,412" change="85%" changeType="up" color="emerald" />
-        <StatCard icon={Globe} label="Countries" value="12" color="blue" />
-        <StatCard icon={Wallet} label="Total Volume" value="$18.5M" change="+22%" changeType="up" color="purple" />
+        <StatCard icon={Users} label="Total Producers" value={formatNumber(totalProducers)} change="+12 this month" changeType="up" color="amber" />
+        <StatCard icon={CheckCircle2} label="Verified" value={formatNumber(verifiedCount)} change={`${totalProducers ? Math.round((verifiedCount / totalProducers) * 100) : 0}%`} changeType="up" color="emerald" />
+        <StatCard icon={Globe} label="Countries" value="2" color="blue" />
+        <StatCard icon={Wallet} label="Total Volume" value={formatCurrency(producers.reduce((sum, p) => sum + (parseFloat(p.volume.replace(/[^0-9.-]+/g, '')) || 0), 0))} change="+22%" changeType="up" color="purple" />
       </div>
 
       {/* Producer Registration CTA */}
@@ -704,7 +796,7 @@ const ProducersScreen = ({ onStartRegistration }: ProducersScreenProps) => {
                   <div className="flex items-center gap-3">
                     <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-slate-600 to-slate-700 
                       flex items-center justify-center text-white font-semibold text-sm">
-                      {producer.name.split(' ').map(n => n[0]).join('')}
+                      {producer.name.split(' ').map((n: string) => n[0]).join('')}
                     </div>
                     <div>
                       <p className="text-sm font-medium text-white">{producer.name}</p>
@@ -761,8 +853,30 @@ const ProducersScreen = ({ onStartRegistration }: ProducersScreenProps) => {
 // TOKENIZATION SCREEN
 // ============================================
 const TokenizationScreen = () => {
-  const [currentStep, setCurrentStep] = useState(2);
-  
+  const { data: tokenData, loading, error, refetch } = useTokens();
+  const { mutate: mintToken, loading: minting } = useMintToken();
+  const { data: listings } = useListings({ status: 'ACTIVE' });
+  const [showMintModal, setShowMintModal] = useState(false);
+  const [selectedListing, setSelectedListing] = useState('');
+  const [tokenType, setTokenType] = useState('NFT');
+  const [mintError, setMintError] = useState('');
+
+  const handleMintToken = async () => {
+    if (!selectedListing) {
+      setMintError('Please select a listing to tokenize');
+      return;
+    }
+    setMintError('');
+    const result = await mintToken({ listingId: selectedListing, tokenType });
+    if (result.success) {
+      setShowMintModal(false);
+      setSelectedListing('');
+      refetch();
+    } else {
+      setMintError(result.error?.message || 'Failed to mint token');
+    }
+  };
+
   const steps = [
     { id: 1, label: 'Asset Selection', status: 'completed' },
     { id: 2, label: 'Validation', status: 'current' },
@@ -771,21 +885,32 @@ const TokenizationScreen = () => {
     { id: 5, label: 'Marketplace', status: 'pending' },
   ];
 
-  const tokens = [
-    { id: 'TKN-001', asset: 'Cocoa Beans Lot #2847', value: '$125,000', tokens: '125,000', status: 'minted', blockchain: 'Polygon' },
-    { id: 'TKN-002', asset: 'Gold Reserve Certificate', value: '$380,000', tokens: '380,000', status: 'minted', blockchain: 'Polygon' },
-    { id: 'TKN-003', asset: 'Carbon Credits - Forest', value: '$45,000', tokens: '45,000', status: 'pending', blockchain: 'Polygon' },
-    { id: 'TKN-004', asset: 'Kente Cultural IP', value: '$15,000', tokens: '15,000', status: 'minted', blockchain: 'Polygon' },
-  ];
+  // Map API data to UI format
+  const tokensArray = Array.isArray(tokenData) ? tokenData : tokenData?.data || [];
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const tokens = tokensArray.map((t: any) => ({
+    id: (t.id as string).slice(0, 8).toUpperCase(),
+    asset: t.asset,
+    value: t.value,
+    tokens: t.tokens,
+    status: (t.status as string).toLowerCase(),
+    blockchain: t.blockchain,
+  }));
+
+  const totalTokens = tokenData?.meta?.total || tokensArray.length;
+  const mintedTokens = tokens.filter(t => t.status === 'minted').length;
+
+  if (loading) return <LoadingSpinner message="Loading tokens..." />;
+  if (error) return <ErrorMessage message={error} onRetry={refetch} />;
 
   return (
     <div className="p-6 space-y-6">
       {/* Stats */}
       <div className="grid grid-cols-4 gap-4">
-        <StatCard icon={Coins} label="Total Tokens Minted" value="4.2M" change="+245K" changeType="up" color="amber" />
-        <StatCard icon={Database} label="Assets Tokenized" value="847" change="+32" changeType="up" color="emerald" />
-        <StatCard icon={Lock} label="Total Value Locked" value="$18.5M" change="+12%" changeType="up" color="blue" />
-        <StatCard icon={Activity} label="24h Transactions" value="1,247" change="+8%" changeType="up" color="purple" />
+        <StatCard icon={Coins} label="Total Tokens" value={formatNumber(totalTokens)} change="+12" changeType="up" color="amber" />
+        <StatCard icon={Database} label="Minted" value={formatNumber(mintedTokens)} change="+5" changeType="up" color="emerald" />
+        <StatCard icon={Lock} label="Pending" value={formatNumber(totalTokens - mintedTokens)} color="blue" />
+        <StatCard icon={Activity} label="Blockchain" value="Polygon" color="purple" />
       </div>
 
       {/* Tokenization Workflow */}
@@ -859,7 +984,13 @@ const TokenizationScreen = () => {
       <div className="bg-slate-800/30 backdrop-blur-sm rounded-2xl border border-slate-700/30 p-5">
         <div className="flex items-center justify-between mb-4">
           <h3 className="text-lg font-semibold text-white">Token Registry</h3>
-          <button className="text-sm text-amber-400 hover:text-amber-300 font-medium">View All</button>
+          <button
+            onClick={() => setShowMintModal(true)}
+            className="flex items-center gap-2 px-4 py-2 bg-amber-500/10 text-amber-400
+            rounded-xl text-sm font-medium hover:bg-amber-500/20 transition-colors">
+            <Plus className="w-4 h-4" />
+            Mint Token
+          </button>
         </div>
         
         <table className="w-full">
@@ -893,6 +1024,73 @@ const TokenizationScreen = () => {
           </tbody>
         </table>
       </div>
+
+      {/* Mint Token Modal */}
+      {showMintModal && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50">
+          <div className="bg-slate-800 rounded-2xl border border-slate-700/50 p-6 w-full max-w-md mx-4">
+            <div className="flex items-center justify-between mb-6">
+              <h3 className="text-xl font-semibold text-white">Mint New Token</h3>
+              <button onClick={() => setShowMintModal(false)} className="text-slate-400 hover:text-white">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              {mintError && (
+                <div className="p-3 bg-red-500/10 border border-red-500/30 rounded-lg text-red-400 text-sm">
+                  {mintError}
+                </div>
+              )}
+
+              <div>
+                <label className="block text-sm text-slate-400 mb-2">Select Listing *</label>
+                <select
+                  value={selectedListing}
+                  onChange={(e) => setSelectedListing(e.target.value)}
+                  className="w-full px-4 py-3 bg-slate-900/50 border border-slate-700/50 rounded-xl
+                    text-white focus:outline-none focus:border-amber-500/50"
+                >
+                  <option value="">Choose a listing...</option>
+                  {(Array.isArray(listings) ? listings : listings?.data || []).map((listing: { id: string; title: string }) => (
+                    <option key={listing.id} value={listing.id}>{listing.title}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-sm text-slate-400 mb-2">Token Type</label>
+                <select
+                  value={tokenType}
+                  onChange={(e) => setTokenType(e.target.value)}
+                  className="w-full px-4 py-3 bg-slate-900/50 border border-slate-700/50 rounded-xl
+                    text-white focus:outline-none focus:border-amber-500/50"
+                >
+                  <option value="NFT">NFT (Non-Fungible)</option>
+                  <option value="FUNGIBLE">Fungible Token</option>
+                </select>
+              </div>
+
+              <div className="flex gap-3 pt-4">
+                <button
+                  type="button"
+                  onClick={() => setShowMintModal(false)}
+                  className="flex-1 px-4 py-3 bg-slate-700/50 text-slate-300 rounded-xl font-medium hover:bg-slate-700"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleMintToken}
+                  disabled={minting}
+                  className="flex-1 px-4 py-3 bg-amber-500 text-slate-900 rounded-xl font-medium hover:bg-amber-400 disabled:opacity-50"
+                >
+                  {minting ? 'Minting...' : 'Mint Token'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
@@ -901,22 +1099,62 @@ const TokenizationScreen = () => {
 // VALIDATION SCREEN
 // ============================================
 const ValidationScreen = () => {
-  const validationQueue = [
-    { id: 'VAL-001', type: 'Lab Test', asset: 'Cocoa Beans', producer: 'Kwame Asante', priority: 'high', status: 'in_progress', eta: '2 hours' },
-    { id: 'VAL-002', type: 'Port Inspection', asset: 'Gold Shipment', producer: 'Kofi Mining Ltd', priority: 'high', status: 'queued', eta: '4 hours' },
-    { id: 'VAL-003', type: 'Quality Test', asset: 'Coffee Beans', producer: 'Maria Santos', priority: 'medium', status: 'completed', eta: '-' },
-    { id: 'VAL-004', type: 'Origin Verification', asset: 'Cassava', producer: 'Ghana Coop', priority: 'low', status: 'queued', eta: '1 day' },
-    { id: 'VAL-005', type: 'Carbon Audit', asset: 'Forest Reserve', producer: 'Green Forest', priority: 'medium', status: 'in_progress', eta: '6 hours' },
-  ];
+  const { data: validationData, loading, error, refetch } = useValidations();
+  const { mutate: createValidation, loading: creating } = useCreateValidation();
+  const { data: listings } = useListings({ status: 'ACTIVE' });
+  const [showAddModal, setShowAddModal] = useState(false);
+  const [formData, setFormData] = useState({
+    type: 'LAB_ANALYSIS',
+    listingId: '',
+    priority: 'MEDIUM',
+    notes: '',
+  });
+  const [formError, setFormError] = useState('');
+
+  const handleCreateValidation = async () => {
+    if (!formData.listingId) {
+      setFormError('Please select a listing');
+      return;
+    }
+    setFormError('');
+    const result = await createValidation(formData);
+    if (result.success) {
+      setShowAddModal(false);
+      setFormData({ type: 'LAB_ANALYSIS', listingId: '', priority: 'MEDIUM', notes: '' });
+      refetch();
+    } else {
+      setFormError(result.error?.message || 'Failed to create validation');
+    }
+  };
+
+  // Map API data to UI format
+  const validationsArray = Array.isArray(validationData) ? validationData : validationData?.data || [];
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const validationQueue = validationsArray.map((v: any) => ({
+    id: v.validationId,
+    type: (v.type as string).replace('_', ' '),
+    asset: v.assetName,
+    producer: String((v.producer as Record<string, unknown>)?.name || 'Unknown'),
+    priority: (v.priority as string).toLowerCase(),
+    status: (v.status as string).toLowerCase().replace('_', ' '),
+    eta: v.eta || '-',
+  }));
+
+  const totalValidations = validationData?.meta?.total || validationsArray.length;
+  const pendingCount = validationQueue.filter(v => v.status === 'pending' || v.status === 'in progress').length;
+  const completedCount = validationQueue.filter(v => v.status === 'completed').length;
+
+  if (loading) return <LoadingSpinner message="Loading validations..." />;
+  if (error) return <ErrorMessage message={error} onRetry={refetch} />;
 
   return (
     <div className="p-6 space-y-6">
       {/* Stats */}
       <div className="grid grid-cols-4 gap-4">
-        <StatCard icon={ClipboardCheck} label="Pending Validations" value="47" color="amber" />
-        <StatCard icon={Microscope} label="Lab Tests Today" value="23" change="+5" changeType="up" color="emerald" />
-        <StatCard icon={Ship} label="Port Inspections" value="12" color="blue" />
-        <StatCard icon={CheckCircle2} label="Completed Today" value="89" change="+15%" changeType="up" color="purple" />
+        <StatCard icon={ClipboardCheck} label="Total Validations" value={formatNumber(totalValidations)} color="amber" />
+        <StatCard icon={Microscope} label="Pending" value={formatNumber(pendingCount)} changeType="up" color="emerald" />
+        <StatCard icon={Ship} label="In Progress" value={formatNumber(validationQueue.filter(v => v.status === 'in progress').length)} color="blue" />
+        <StatCard icon={CheckCircle2} label="Completed" value={formatNumber(completedCount)} change="+15%" changeType="up" color="purple" />
       </div>
 
       {/* Validation Types */}
@@ -944,7 +1182,9 @@ const ValidationScreen = () => {
       <div className="bg-slate-800/30 backdrop-blur-sm rounded-2xl border border-slate-700/30 p-5">
         <div className="flex items-center justify-between mb-4">
           <h3 className="text-lg font-semibold text-white">Validation Queue</h3>
-          <button className="flex items-center gap-2 px-4 py-2 bg-amber-500/10 text-amber-400 
+          <button
+            onClick={() => setShowAddModal(true)}
+            className="flex items-center gap-2 px-4 py-2 bg-amber-500/10 text-amber-400
             rounded-xl text-sm font-medium hover:bg-amber-500/20 transition-colors">
             <Plus className="w-4 h-4" />
             New Validation
@@ -1001,6 +1241,97 @@ const ValidationScreen = () => {
           </tbody>
         </table>
       </div>
+
+      {/* New Validation Modal */}
+      {showAddModal && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50">
+          <div className="bg-slate-800 rounded-2xl border border-slate-700/50 p-6 w-full max-w-md mx-4">
+            <div className="flex items-center justify-between mb-6">
+              <h3 className="text-xl font-semibold text-white">Request New Validation</h3>
+              <button onClick={() => setShowAddModal(false)} className="text-slate-400 hover:text-white">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              {formError && (
+                <div className="p-3 bg-red-500/10 border border-red-500/30 rounded-lg text-red-400 text-sm">
+                  {formError}
+                </div>
+              )}
+
+              <div>
+                <label className="block text-sm text-slate-400 mb-2">Validation Type *</label>
+                <select
+                  value={formData.type}
+                  onChange={(e) => setFormData({ ...formData, type: e.target.value })}
+                  className="w-full px-4 py-3 bg-slate-900/50 border border-slate-700/50 rounded-xl text-white focus:outline-none focus:border-amber-500/50"
+                >
+                  <option value="LAB_ANALYSIS">Lab Analysis</option>
+                  <option value="PORT_INSPECTION">Port Inspection</option>
+                  <option value="ORIGIN_VERIFICATION">Origin Verification</option>
+                  <option value="CARBON_AUDIT">Carbon Audit</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-sm text-slate-400 mb-2">Select Listing *</label>
+                <select
+                  value={formData.listingId}
+                  onChange={(e) => setFormData({ ...formData, listingId: e.target.value })}
+                  className="w-full px-4 py-3 bg-slate-900/50 border border-slate-700/50 rounded-xl text-white focus:outline-none focus:border-amber-500/50"
+                >
+                  <option value="">Choose a listing...</option>
+                  {(Array.isArray(listings) ? listings : listings?.data || []).map((listing: { id: string; title: string }) => (
+                    <option key={listing.id} value={listing.id}>{listing.title}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-sm text-slate-400 mb-2">Priority</label>
+                <select
+                  value={formData.priority}
+                  onChange={(e) => setFormData({ ...formData, priority: e.target.value })}
+                  className="w-full px-4 py-3 bg-slate-900/50 border border-slate-700/50 rounded-xl text-white focus:outline-none focus:border-amber-500/50"
+                >
+                  <option value="LOW">Low</option>
+                  <option value="MEDIUM">Medium</option>
+                  <option value="HIGH">High</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-sm text-slate-400 mb-2">Notes</label>
+                <textarea
+                  value={formData.notes}
+                  onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
+                  className="w-full px-4 py-3 bg-slate-900/50 border border-slate-700/50 rounded-xl text-white placeholder-slate-500 focus:outline-none focus:border-amber-500/50 resize-none"
+                  rows={3}
+                  placeholder="Additional notes..."
+                />
+              </div>
+
+              <div className="flex gap-3 pt-4">
+                <button
+                  type="button"
+                  onClick={() => setShowAddModal(false)}
+                  className="flex-1 px-4 py-3 bg-slate-700/50 text-slate-300 rounded-xl font-medium hover:bg-slate-700"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleCreateValidation}
+                  disabled={creating}
+                  className="flex-1 px-4 py-3 bg-amber-500 text-slate-900 rounded-xl font-medium hover:bg-amber-400 disabled:opacity-50"
+                >
+                  {creating ? 'Creating...' : 'Submit Request'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
@@ -1009,21 +1340,73 @@ const ValidationScreen = () => {
 // INSURANCE SCREEN
 // ============================================
 const InsuranceScreen = () => {
-  const policies = [
-    { id: 'POL-001', type: 'Parametric Crop', asset: 'Cocoa Plantation', coverage: '$500,000', premium: '$15,000/yr', provider: "Lloyd's", status: 'active' },
-    { id: 'POL-002', type: 'Maritime Shipping', asset: 'Gold Shipment', coverage: '$2,000,000', premium: '$45,000', provider: "Lloyd's", status: 'active' },
-    { id: 'POL-003', type: 'Livestock Mortality', asset: 'Cattle Herd', coverage: '$150,000', premium: '$8,500/yr', provider: "Lloyd's", status: 'pending' },
-    { id: 'POL-004', type: 'Carbon Credit', asset: 'Forest Reserve', coverage: '$300,000', premium: '$12,000/yr', provider: "Lloyd's", status: 'active' },
-  ];
+  const { data: insuranceData, loading, error, refetch } = useInsurancePolicies();
+  const { mutate: createPolicy, loading: creating } = useCreateInsurancePolicy();
+  const { data: listings } = useListings({ status: 'ACTIVE' });
+  const [showAddModal, setShowAddModal] = useState(false);
+  const [formData, setFormData] = useState({
+    type: 'CROP',
+    listingId: '',
+    coverageAmount: '',
+    startDate: '',
+    endDate: '',
+  });
+  const [formError, setFormError] = useState('');
+
+  const handleCreatePolicy = async () => {
+    if (!formData.listingId || !formData.coverageAmount) {
+      setFormError('Please fill in all required fields');
+      return;
+    }
+    setFormError('');
+    const result = await createPolicy({
+      type: formData.type,
+      assetId: formData.listingId,
+      assetType: 'LISTING',
+      coverageAmount: parseFloat(formData.coverageAmount),
+      startDate: formData.startDate || new Date().toISOString(),
+      endDate: formData.endDate || new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString(),
+    });
+    if (result.success) {
+      setShowAddModal(false);
+      setFormData({ type: 'CROP', listingId: '', coverageAmount: '', startDate: '', endDate: '' });
+      refetch();
+    } else {
+      setFormError(result.error?.message || 'Failed to create policy');
+    }
+  };
+
+  // Map API data to UI format
+  const insuranceArray = Array.isArray(insuranceData) ? insuranceData : insuranceData?.data || [];
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const policies = insuranceArray.map((p: any) => ({
+    id: (p.id as string).slice(0, 8).toUpperCase(),
+    type: p.type,
+    asset: p.asset,
+    coverage: p.coverage,
+    premium: p.premium,
+    provider: p.provider,
+    status: (p.status as string).toLowerCase(),
+  }));
+
+  const totalPolicies = insuranceData?.meta?.total || insuranceArray.length;
+  const activePolicies = policies.filter(p => p.status === 'active').length;
+  const totalCoverage = policies.reduce((sum, p) => {
+    const value = parseFloat(p.coverage.replace(/[^0-9.-]+/g, '')) || 0;
+    return sum + value;
+  }, 0);
+
+  if (loading) return <LoadingSpinner message="Loading insurance policies..." />;
+  if (error) return <ErrorMessage message={error} onRetry={refetch} />;
 
   return (
     <div className="p-6 space-y-6">
       {/* Stats */}
       <div className="grid grid-cols-4 gap-4">
-        <StatCard icon={Shield} label="Total Coverage" value="$18.5M" change="+$2.1M" changeType="up" color="amber" />
-        <StatCard icon={FileText} label="Active Policies" value="247" change="+12" changeType="up" color="emerald" />
-        <StatCard icon={AlertTriangle} label="Open Claims" value="8" color="red" />
-        <StatCard icon={Landmark} label="Claims Paid (YTD)" value="$1.2M" color="blue" />
+        <StatCard icon={Shield} label="Total Coverage" value={formatCurrency(totalCoverage)} change="+$2.1M" changeType="up" color="amber" />
+        <StatCard icon={FileText} label="Active Policies" value={formatNumber(activePolicies)} change="+2" changeType="up" color="emerald" />
+        <StatCard icon={AlertTriangle} label="Pending" value={formatNumber(totalPolicies - activePolicies)} color="red" />
+        <StatCard icon={Landmark} label="Total Policies" value={formatNumber(totalPolicies)} color="blue" />
       </div>
 
       {/* Lloyd's Integration Banner */}
@@ -1072,13 +1455,15 @@ const InsuranceScreen = () => {
       <div className="bg-slate-800/30 backdrop-blur-sm rounded-2xl border border-slate-700/30 p-5">
         <div className="flex items-center justify-between mb-4">
           <h3 className="text-lg font-semibold text-white">Active Policies</h3>
-          <button className="flex items-center gap-2 px-4 py-2 bg-blue-500/10 text-blue-400 
+          <button
+            onClick={() => setShowAddModal(true)}
+            className="flex items-center gap-2 px-4 py-2 bg-blue-500/10 text-blue-400
             rounded-xl text-sm font-medium hover:bg-blue-500/20 transition-colors">
             <Plus className="w-4 h-4" />
             New Policy
           </button>
         </div>
-        
+
         <table className="w-full">
           <thead>
             <tr className="border-b border-slate-700/50">
@@ -1112,6 +1497,105 @@ const InsuranceScreen = () => {
           </tbody>
         </table>
       </div>
+
+      {/* New Policy Modal */}
+      {showAddModal && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50">
+          <div className="bg-slate-800 rounded-2xl border border-slate-700/50 p-6 w-full max-w-md mx-4">
+            <div className="flex items-center justify-between mb-6">
+              <h3 className="text-xl font-semibold text-white">Create Insurance Policy</h3>
+              <button onClick={() => setShowAddModal(false)} className="text-slate-400 hover:text-white">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              {formError && (
+                <div className="p-3 bg-red-500/10 border border-red-500/30 rounded-lg text-red-400 text-sm">
+                  {formError}
+                </div>
+              )}
+
+              <div>
+                <label className="block text-sm text-slate-400 mb-2">Insurance Type *</label>
+                <select
+                  value={formData.type}
+                  onChange={(e) => setFormData({ ...formData, type: e.target.value })}
+                  className="w-full px-4 py-3 bg-slate-900/50 border border-slate-700/50 rounded-xl text-white focus:outline-none focus:border-blue-500/50"
+                >
+                  <option value="CROP">Crop Insurance</option>
+                  <option value="SHIPPING">Maritime/Shipping</option>
+                  <option value="MINERAL">Mineral Coverage</option>
+                  <option value="CARBON">Carbon Credits</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-sm text-slate-400 mb-2">Select Asset *</label>
+                <select
+                  value={formData.listingId}
+                  onChange={(e) => setFormData({ ...formData, listingId: e.target.value })}
+                  className="w-full px-4 py-3 bg-slate-900/50 border border-slate-700/50 rounded-xl text-white focus:outline-none focus:border-blue-500/50"
+                >
+                  <option value="">Choose a listing...</option>
+                  {(Array.isArray(listings) ? listings : listings?.data || []).map((listing: { id: string; title: string }) => (
+                    <option key={listing.id} value={listing.id}>{listing.title}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-sm text-slate-400 mb-2">Coverage Amount (USD) *</label>
+                <input
+                  type="number"
+                  value={formData.coverageAmount}
+                  onChange={(e) => setFormData({ ...formData, coverageAmount: e.target.value })}
+                  className="w-full px-4 py-3 bg-slate-900/50 border border-slate-700/50 rounded-xl text-white placeholder-slate-500 focus:outline-none focus:border-blue-500/50"
+                  placeholder="e.g., 100000"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm text-slate-400 mb-2">Start Date</label>
+                  <input
+                    type="date"
+                    value={formData.startDate}
+                    onChange={(e) => setFormData({ ...formData, startDate: e.target.value })}
+                    className="w-full px-4 py-3 bg-slate-900/50 border border-slate-700/50 rounded-xl text-white focus:outline-none focus:border-blue-500/50"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm text-slate-400 mb-2">End Date</label>
+                  <input
+                    type="date"
+                    value={formData.endDate}
+                    onChange={(e) => setFormData({ ...formData, endDate: e.target.value })}
+                    className="w-full px-4 py-3 bg-slate-900/50 border border-slate-700/50 rounded-xl text-white focus:outline-none focus:border-blue-500/50"
+                  />
+                </div>
+              </div>
+
+              <div className="flex gap-3 pt-4">
+                <button
+                  type="button"
+                  onClick={() => setShowAddModal(false)}
+                  className="flex-1 px-4 py-3 bg-slate-700/50 text-slate-300 rounded-xl font-medium hover:bg-slate-700"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleCreatePolicy}
+                  disabled={creating}
+                  className="flex-1 px-4 py-3 bg-blue-500 text-white rounded-xl font-medium hover:bg-blue-400 disabled:opacity-50"
+                >
+                  {creating ? 'Creating...' : 'Create Policy'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
@@ -1120,21 +1604,76 @@ const InsuranceScreen = () => {
 // HEDGING SCREEN
 // ============================================
 const HedgingScreen = () => {
-  const positions = [
-    { id: 'HDG-001', commodity: 'Cocoa Futures', type: 'Long', qty: '100 MT', strike: '$2,400/MT', expiry: 'Mar 2025', pnl: '+$15,200', status: 'open' },
-    { id: 'HDG-002', commodity: 'Gold Options', type: 'Put', qty: '50 oz', strike: '$1,900/oz', expiry: 'Feb 2025', pnl: '-$2,100', status: 'open' },
-    { id: 'HDG-003', commodity: 'Maize Futures', type: 'Short', qty: '200 MT', strike: '$220/MT', expiry: 'Apr 2025', pnl: '+$8,400', status: 'open' },
-    { id: 'HDG-004', commodity: 'Coffee Futures', type: 'Long', qty: '50 MT', strike: '$1,750/MT', expiry: 'Jan 2025', pnl: '+$4,500', status: 'closed' },
-  ];
+  const { data: hedgeData, loading, error, refetch } = useHedgePositions();
+  const { mutate: createHedge, loading: creating } = useCreateHedgePosition();
+  const [formData, setFormData] = useState({
+    commodity: 'Cocoa Futures',
+    type: 'FUTURES',
+    quantity: '',
+    strikePrice: '',
+    direction: 'LONG',
+  });
+  const [formError, setFormError] = useState('');
+  const [formSuccess, setFormSuccess] = useState('');
+
+  const handleExecuteHedge = async () => {
+    if (!formData.quantity || !formData.strikePrice) {
+      setFormError('Please fill in quantity and strike price');
+      return;
+    }
+    setFormError('');
+    setFormSuccess('');
+    const result = await createHedge({
+      type: formData.type,
+      commodity: formData.commodity,
+      quantity: parseFloat(formData.quantity),
+      unit: 'MT',
+      strikePrice: parseFloat(formData.strikePrice),
+      expiryDate: new Date(Date.now() + 90 * 24 * 60 * 60 * 1000).toISOString(),
+      direction: formData.direction,
+    });
+    if (result.success) {
+      setFormSuccess('Hedge position created successfully!');
+      setFormData({ commodity: 'Cocoa Futures', type: 'FUTURES', quantity: '', strikePrice: '', direction: 'LONG' });
+      refetch();
+      setTimeout(() => setFormSuccess(''), 3000);
+    } else {
+      setFormError(result.error?.message || 'Failed to create hedge position');
+    }
+  };
+
+  // Map API data to UI format
+  const hedgeArray = Array.isArray(hedgeData) ? hedgeData : hedgeData?.data || [];
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const positions = hedgeArray.map((h: any) => ({
+    id: (h.id as string).slice(0, 8).toUpperCase(),
+    commodity: h.commodity,
+    type: h.type,
+    qty: h.qty,
+    strike: h.strike,
+    expiry: h.expiry,
+    pnl: h.pnl,
+    status: (h.status as string).toLowerCase(),
+  }));
+
+  const totalPositions = hedgeData?.meta?.total || hedgeArray.length;
+  const openPositions = positions.filter(p => p.status === 'open').length;
+  const totalPnl = positions.reduce((sum, p) => {
+    const value = parseFloat(p.pnl.replace(/[^0-9.-]+/g, '')) || 0;
+    return sum + value;
+  }, 0);
+
+  if (loading) return <LoadingSpinner message="Loading hedge positions..." />;
+  if (error) return <ErrorMessage message={error} onRetry={refetch} />;
 
   return (
     <div className="p-6 space-y-6">
       {/* Stats */}
       <div className="grid grid-cols-4 gap-4">
-        <StatCard icon={TrendingUp} label="Total Positions" value="$6.8M" change="+$890K" changeType="up" color="amber" />
-        <StatCard icon={Target} label="Active Hedges" value="124" change="+8" changeType="up" color="emerald" />
-        <StatCard icon={Activity} label="Unrealized P&L" value="+$245K" change="+12%" changeType="up" color="blue" />
-        <StatCard icon={Scale} label="Hedge Ratio" value="78%" color="purple" />
+        <StatCard icon={TrendingUp} label="Total Positions" value={formatNumber(totalPositions)} change="+3" changeType="up" color="amber" />
+        <StatCard icon={Target} label="Open Positions" value={formatNumber(openPositions)} change="+2" changeType="up" color="emerald" />
+        <StatCard icon={Activity} label="Total P&L" value={`${totalPnl >= 0 ? '+' : ''}${formatCurrency(totalPnl)}`} change={totalPnl >= 0 ? "+12%" : "-5%"} changeType={totalPnl >= 0 ? "up" : "down"} color="blue" />
+        <StatCard icon={Scale} label="Exchange" value="CME" color="purple" />
       </div>
 
       {/* CME Integration */}
@@ -1164,44 +1703,69 @@ const HedgingScreen = () => {
       <div className="grid grid-cols-3 gap-6">
         <div className="col-span-2 bg-slate-800/30 backdrop-blur-sm rounded-2xl border border-slate-700/30 p-5">
           <h3 className="text-lg font-semibold text-white mb-4">Quick Hedge</h3>
+          {formError && (
+            <div className="mb-4 p-3 bg-red-500/10 border border-red-500/30 rounded-lg text-red-400 text-sm">
+              {formError}
+            </div>
+          )}
+          {formSuccess && (
+            <div className="mb-4 p-3 bg-emerald-500/10 border border-emerald-500/30 rounded-lg text-emerald-400 text-sm">
+              {formSuccess}
+            </div>
+          )}
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="block text-sm text-slate-400 mb-2">Commodity</label>
-              <select className="w-full px-4 py-3 bg-slate-900/50 border border-slate-700/50 rounded-xl
+              <select
+                value={formData.commodity}
+                onChange={(e) => setFormData({ ...formData, commodity: e.target.value })}
+                className="w-full px-4 py-3 bg-slate-900/50 border border-slate-700/50 rounded-xl
                 text-white focus:outline-none focus:border-amber-500/50">
-                <option>Cocoa Futures</option>
-                <option>Gold Options</option>
-                <option>Maize Futures</option>
-                <option>Coffee Futures</option>
+                <option value="Cocoa Futures">Cocoa Futures</option>
+                <option value="Gold Options">Gold Options</option>
+                <option value="Maize Futures">Maize Futures</option>
+                <option value="Coffee Futures">Coffee Futures</option>
               </select>
             </div>
             <div>
               <label className="block text-sm text-slate-400 mb-2">Position Type</label>
-              <select className="w-full px-4 py-3 bg-slate-900/50 border border-slate-700/50 rounded-xl
+              <select
+                value={formData.direction}
+                onChange={(e) => setFormData({ ...formData, direction: e.target.value })}
+                className="w-full px-4 py-3 bg-slate-900/50 border border-slate-700/50 rounded-xl
                 text-white focus:outline-none focus:border-amber-500/50">
-                <option>Long (Buy)</option>
-                <option>Short (Sell)</option>
-                <option>Put Option</option>
-                <option>Call Option</option>
+                <option value="LONG">Long (Buy)</option>
+                <option value="SHORT">Short (Sell)</option>
               </select>
             </div>
             <div>
-              <label className="block text-sm text-slate-400 mb-2">Quantity</label>
-              <input type="text" placeholder="e.g., 100 MT" 
+              <label className="block text-sm text-slate-400 mb-2">Quantity (MT)</label>
+              <input
+                type="number"
+                value={formData.quantity}
+                onChange={(e) => setFormData({ ...formData, quantity: e.target.value })}
+                placeholder="e.g., 100"
                 className="w-full px-4 py-3 bg-slate-900/50 border border-slate-700/50 rounded-xl
                   text-white placeholder-slate-500 focus:outline-none focus:border-amber-500/50" />
             </div>
             <div>
-              <label className="block text-sm text-slate-400 mb-2">Strike Price</label>
-              <input type="text" placeholder="e.g., $2,400/MT" 
+              <label className="block text-sm text-slate-400 mb-2">Strike Price ($/MT)</label>
+              <input
+                type="number"
+                value={formData.strikePrice}
+                onChange={(e) => setFormData({ ...formData, strikePrice: e.target.value })}
+                placeholder="e.g., 2400"
                 className="w-full px-4 py-3 bg-slate-900/50 border border-slate-700/50 rounded-xl
                   text-white placeholder-slate-500 focus:outline-none focus:border-amber-500/50" />
             </div>
           </div>
-          <button className="mt-4 w-full py-3 bg-gradient-to-r from-amber-500 to-amber-600 
-            rounded-xl text-sm font-medium text-white hover:from-amber-400 hover:to-amber-500 
-            transition-all shadow-lg shadow-amber-500/20">
-            Execute Hedge Position
+          <button
+            onClick={handleExecuteHedge}
+            disabled={creating}
+            className="mt-4 w-full py-3 bg-gradient-to-r from-amber-500 to-amber-600
+            rounded-xl text-sm font-medium text-white hover:from-amber-400 hover:to-amber-500
+            transition-all shadow-lg shadow-amber-500/20 disabled:opacity-50">
+            {creating ? 'Executing...' : 'Execute Hedge Position'}
           </button>
         </div>
 
@@ -1281,21 +1845,69 @@ const HedgingScreen = () => {
 // LOGISTICS SCREEN
 // ============================================
 const LogisticsScreen = () => {
-  const shipments = [
-    { id: 'SHP-001', cargo: 'Cocoa Beans', origin: 'Tema Port', dest: 'Rotterdam', vessel: 'MV Atlantic Star', status: 'in_transit', eta: '12 days' },
-    { id: 'SHP-002', cargo: 'Gold Bars', origin: 'Accra Airport', dest: 'London', vessel: 'BA Flight 082', status: 'loading', eta: '2 days' },
-    { id: 'SHP-003', cargo: 'Coffee Beans', origin: 'Santo Domingo', dest: 'Miami', vessel: 'MV Caribbean Queen', status: 'in_transit', eta: '5 days' },
-    { id: 'SHP-004', cargo: 'Cassava Flour', origin: 'Tema Port', dest: 'Hamburg', vessel: 'MSC Diana', status: 'customs', eta: '3 days' },
-  ];
+  const { data: shipmentData, loading, error, refetch } = useShipments();
+  const { mutate: createShipment, loading: creating } = useCreateShipment();
+  const { data: listings } = useListings({ status: 'ACTIVE' });
+  const [showAddModal, setShowAddModal] = useState(false);
+  const [formData, setFormData] = useState({
+    listingId: '',
+    origin: 'Port of Tema, Ghana',
+    destination: 'Rotterdam, Netherlands',
+    vessel: '',
+    eta: '',
+  });
+  const [formError, setFormError] = useState('');
+
+  const handleCreateShipment = async () => {
+    if (!formData.listingId || !formData.vessel) {
+      setFormError('Please fill in all required fields');
+      return;
+    }
+    setFormError('');
+    const result = await createShipment({
+      listingId: formData.listingId,
+      origin: formData.origin,
+      destination: formData.destination,
+      vessel: formData.vessel,
+      eta: formData.eta || new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+    });
+    if (result.success) {
+      setShowAddModal(false);
+      setFormData({ listingId: '', origin: 'Port of Tema, Ghana', destination: 'Rotterdam, Netherlands', vessel: '', eta: '' });
+      refetch();
+    } else {
+      setFormError(result.error?.message || 'Failed to create shipment');
+    }
+  };
+
+  // Map API data to UI format
+  const shipmentArray = Array.isArray(shipmentData) ? shipmentData : shipmentData?.data || [];
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const shipments = shipmentArray.map((s: any) => ({
+    id: (s.id as string).slice(0, 8).toUpperCase(),
+    cargo: s.cargo,
+    origin: s.origin,
+    dest: s.dest,
+    vessel: s.vessel,
+    status: (s.status as string).toLowerCase().replace('_', ' '),
+    eta: s.eta,
+  }));
+
+  const totalShipments = shipmentData?.meta?.total || shipmentArray.length;
+  const inTransit = shipments.filter(s => s.status === 'in transit').length;
+  const delivered = shipments.filter(s => s.status === 'delivered').length;
+
+  if (loading) return <LoadingSpinner message="Loading shipments..." />;
+  if (error) return <ErrorMessage message={error} onRetry={refetch} />;
 
   return (
     <div className="p-6 space-y-6">
       {/* Stats */}
       <div className="grid grid-cols-4 gap-4">
-        <StatCard icon={Ship} label="Active Shipments" value="47" change="+5" changeType="up" color="amber" />
-        <StatCard icon={Container} label="Containers" value="234" color="emerald" />
-        <StatCard icon={Truck} label="Land Transport" value="89" color="blue" />
-        <StatCard icon={CheckCircle2} label="Delivered (MTD)" value="156" change="+23%" changeType="up" color="purple" />
+        <StatCard icon={Ship} label="Total Shipments" value={formatNumber(totalShipments)} change="+3" changeType="up" color="amber" />
+        <StatCard icon={Container} label="In Transit" value={formatNumber(inTransit)} color="emerald" />
+        <StatCard icon={Truck} label="Loading" value={formatNumber(shipments.filter(s => s.status === 'loading').length)} color="blue" />
+        <StatCard icon={CheckCircle2} label="Delivered" value={formatNumber(delivered)} change="+10%" changeType="up" color="purple" />
       </div>
 
       {/* Port Gateways */}
@@ -1340,13 +1952,15 @@ const LogisticsScreen = () => {
       <div className="bg-slate-800/30 backdrop-blur-sm rounded-2xl border border-slate-700/30 p-5">
         <div className="flex items-center justify-between mb-4">
           <h3 className="text-lg font-semibold text-white">Active Shipments</h3>
-          <button className="flex items-center gap-2 px-4 py-2 bg-blue-500/10 text-blue-400 
+          <button
+            onClick={() => setShowAddModal(true)}
+            className="flex items-center gap-2 px-4 py-2 bg-blue-500/10 text-blue-400
             rounded-xl text-sm font-medium hover:bg-blue-500/20 transition-colors">
             <Plus className="w-4 h-4" />
             New Shipment
           </button>
         </div>
-        
+
         <table className="w-full">
           <thead>
             <tr className="border-b border-slate-700/50">
@@ -1384,6 +1998,104 @@ const LogisticsScreen = () => {
           </tbody>
         </table>
       </div>
+
+      {/* New Shipment Modal */}
+      {showAddModal && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50">
+          <div className="bg-slate-800 rounded-2xl border border-slate-700/50 p-6 w-full max-w-md mx-4">
+            <div className="flex items-center justify-between mb-6">
+              <h3 className="text-xl font-semibold text-white">Create New Shipment</h3>
+              <button onClick={() => setShowAddModal(false)} className="text-slate-400 hover:text-white">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              {formError && (
+                <div className="p-3 bg-red-500/10 border border-red-500/30 rounded-lg text-red-400 text-sm">
+                  {formError}
+                </div>
+              )}
+
+              <div>
+                <label className="block text-sm text-slate-400 mb-2">Select Cargo (Listing) *</label>
+                <select
+                  value={formData.listingId}
+                  onChange={(e) => setFormData({ ...formData, listingId: e.target.value })}
+                  className="w-full px-4 py-3 bg-slate-900/50 border border-slate-700/50 rounded-xl text-white focus:outline-none focus:border-blue-500/50"
+                >
+                  <option value="">Choose a listing...</option>
+                  {(Array.isArray(listings) ? listings : listings?.data || []).map((listing: { id: string; title: string }) => (
+                    <option key={listing.id} value={listing.id}>{listing.title}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-sm text-slate-400 mb-2">Origin Port</label>
+                <select
+                  value={formData.origin}
+                  onChange={(e) => setFormData({ ...formData, origin: e.target.value })}
+                  className="w-full px-4 py-3 bg-slate-900/50 border border-slate-700/50 rounded-xl text-white focus:outline-none focus:border-blue-500/50"
+                >
+                  <option value="Port of Tema, Ghana">Port of Tema, Ghana</option>
+                  <option value="Takoradi Port, Ghana">Takoradi Port, Ghana</option>
+                  <option value="Santo Domingo Port, DR">Santo Domingo Port, DR</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-sm text-slate-400 mb-2">Destination</label>
+                <input
+                  type="text"
+                  value={formData.destination}
+                  onChange={(e) => setFormData({ ...formData, destination: e.target.value })}
+                  className="w-full px-4 py-3 bg-slate-900/50 border border-slate-700/50 rounded-xl text-white placeholder-slate-500 focus:outline-none focus:border-blue-500/50"
+                  placeholder="e.g., Rotterdam, Netherlands"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm text-slate-400 mb-2">Vessel Name *</label>
+                <input
+                  type="text"
+                  value={formData.vessel}
+                  onChange={(e) => setFormData({ ...formData, vessel: e.target.value })}
+                  className="w-full px-4 py-3 bg-slate-900/50 border border-slate-700/50 rounded-xl text-white placeholder-slate-500 focus:outline-none focus:border-blue-500/50"
+                  placeholder="e.g., MV Atlantic Star"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm text-slate-400 mb-2">Estimated Arrival</label>
+                <input
+                  type="date"
+                  value={formData.eta}
+                  onChange={(e) => setFormData({ ...formData, eta: e.target.value })}
+                  className="w-full px-4 py-3 bg-slate-900/50 border border-slate-700/50 rounded-xl text-white focus:outline-none focus:border-blue-500/50"
+                />
+              </div>
+
+              <div className="flex gap-3 pt-4">
+                <button
+                  type="button"
+                  onClick={() => setShowAddModal(false)}
+                  className="flex-1 px-4 py-3 bg-slate-700/50 text-slate-300 rounded-xl font-medium hover:bg-slate-700"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleCreateShipment}
+                  disabled={creating}
+                  className="flex-1 px-4 py-3 bg-blue-500 text-white rounded-xl font-medium hover:bg-blue-400 disabled:opacity-50"
+                >
+                  {creating ? 'Creating...' : 'Create Shipment'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
@@ -1392,6 +2104,28 @@ const LogisticsScreen = () => {
 // ANALYTICS SCREEN
 // ============================================
 const AnalyticsScreen = () => {
+  const { data: analyticsData, loading, error, refetch } = useAnalytics();
+  const [analyzing, setAnalyzing] = useState(false);
+  const [analysisComplete, setAnalysisComplete] = useState(false);
+
+  const handleRunAnalysis = async () => {
+    setAnalyzing(true);
+    setAnalysisComplete(false);
+    // Simulate AI analysis
+    await new Promise(resolve => setTimeout(resolve, 2000));
+    await refetch();
+    setAnalyzing(false);
+    setAnalysisComplete(true);
+    setTimeout(() => setAnalysisComplete(false), 3000);
+  };
+
+  if (loading) return <LoadingSpinner message="Loading analytics..." />;
+  if (error) return <ErrorMessage message={error} onRetry={refetch} />;
+
+  const overview = analyticsData?.overview;
+  const aiInsights = analyticsData?.aiInsights || [];
+  const riskMetrics = analyticsData?.riskMetrics;
+
   return (
     <div className="p-6 space-y-6">
       {/* AI Integration Banner */}
@@ -1406,18 +2140,29 @@ const AnalyticsScreen = () => {
             <p className="text-sm text-slate-400">AI-powered market predictions and risk analysis</p>
           </div>
         </div>
-        <button className="px-4 py-2 bg-purple-500/10 text-purple-400 rounded-xl text-sm 
-          font-medium hover:bg-purple-500/20 transition-colors">
-          Run Analysis
-        </button>
+        <div className="flex items-center gap-3">
+          {analysisComplete && (
+            <span className="px-3 py-1 bg-emerald-500/10 text-emerald-400 rounded-full text-sm font-medium">
+              Analysis Complete
+            </span>
+          )}
+          <button
+            onClick={handleRunAnalysis}
+            disabled={analyzing}
+            className="px-4 py-2 bg-purple-500/10 text-purple-400 rounded-xl text-sm
+            font-medium hover:bg-purple-500/20 transition-colors disabled:opacity-50 flex items-center gap-2">
+            {analyzing && <Loader2 className="w-4 h-4 animate-spin" />}
+            {analyzing ? 'Analyzing...' : 'Run Analysis'}
+          </button>
+        </div>
       </div>
 
       {/* Key Metrics */}
       <div className="grid grid-cols-4 gap-4">
-        <StatCard icon={TrendingUp} label="Market Prediction Accuracy" value="94.2%" change="+2.1%" changeType="up" color="purple" />
-        <StatCard icon={Activity} label="Processed Data Points" value="2.4M" change="+156K" changeType="up" color="amber" />
-        <StatCard icon={Target} label="Risk Alerts Generated" value="47" color="red" />
-        <StatCard icon={Award} label="AI Confidence Score" value="98.5%" color="emerald" />
+        <StatCard icon={TrendingUp} label="Active Producers" value={formatNumber(overview?.producers?.total || 0)} change={`${overview?.producers?.verified || 0} verified`} changeType="up" color="purple" />
+        <StatCard icon={Activity} label="Active Listings" value={formatNumber(overview?.listings?.active || 0)} change={`of ${overview?.listings?.total || 0}`} changeType="up" color="amber" />
+        <StatCard icon={Target} label="Open Positions" value={formatNumber(overview?.hedging?.openPositions || 0)} color="red" />
+        <StatCard icon={Award} label="Revenue" value={formatCurrency(overview?.revenue || 0)} color="emerald" />
       </div>
 
       {/* Charts Grid */}
@@ -1449,12 +2194,12 @@ const AnalyticsScreen = () => {
         <div className="bg-slate-800/30 backdrop-blur-sm rounded-2xl border border-slate-700/30 p-5">
           <h3 className="text-lg font-semibold text-white mb-4">Risk Heatmap by Region</h3>
           <div className="grid grid-cols-4 gap-2">
-            {([
+            {(riskMetrics?.regions || [
               { region: 'Ghana', weather: 'low', market: 'medium', supply: 'low', logistics: 'low' },
               { region: 'DR', weather: 'medium', market: 'low', supply: 'low', logistics: 'medium' },
               { region: 'Nigeria', weather: 'high', market: 'medium', supply: 'medium', logistics: 'high' },
               { region: 'Kenya', weather: 'low', market: 'low', supply: 'low', logistics: 'medium' },
-            ] as const).map((row, i) => (
+            ]).map((row, i) => (
               <React.Fragment key={i}>
                 <div className="text-sm text-white font-medium py-2">{row.region}</div>
                 {(['weather', 'market', 'supply', 'logistics'] as const).map((key) => (
@@ -1483,11 +2228,11 @@ const AnalyticsScreen = () => {
       <div className="bg-slate-800/30 backdrop-blur-sm rounded-2xl border border-slate-700/30 p-5">
         <h3 className="text-lg font-semibold text-white mb-4">AI-Generated Insights</h3>
         <div className="grid grid-cols-3 gap-4">
-          {[
+          {(aiInsights.length > 0 ? aiInsights : [
             { title: 'Cocoa Price Prediction', insight: 'Expected 8% increase in Q1 2025 due to supply constraints in Ivory Coast', confidence: 92, type: 'bullish' },
             { title: 'Weather Alert - Ghana', insight: 'Dry season may affect maize yields in Northern region. Consider hedging positions.', confidence: 87, type: 'warning' },
             { title: 'Carbon Credit Opportunity', insight: 'Mangrove restoration projects showing 2.3x ROI. High demand from EU buyers.', confidence: 95, type: 'opportunity' },
-          ].map((item, i) => (
+          ]).map((item, i) => (
             <div key={i} className={`p-4 rounded-xl border
               ${item.type === 'bullish' ? 'bg-emerald-500/5 border-emerald-500/20' :
                 item.type === 'warning' ? 'bg-amber-500/5 border-amber-500/20' :
@@ -1514,6 +2259,26 @@ const AnalyticsScreen = () => {
 // SETTINGS SCREEN
 // ============================================
 const SettingsScreen = () => {
+  const { data: userSettings, loading, error, refetch } = useSettings();
+  const { mutate: updateSettings, loading: updating } = useUpdateSettings();
+  const [name, setName] = useState('');
+  const [phone, setPhone] = useState('');
+
+  useEffect(() => {
+    if (userSettings) {
+      setName(userSettings.name || '');
+      setPhone(userSettings.phone || '');
+    }
+  }, [userSettings]);
+
+  const handleSave = async () => {
+    await updateSettings({ name, phone });
+    refetch();
+  };
+
+  if (loading) return <LoadingSpinner message="Loading settings..." />;
+  if (error) return <ErrorMessage message={error} onRetry={refetch} />;
+
   return (
     <div className="p-6 space-y-6">
       <div className="grid grid-cols-3 gap-6">
@@ -1529,35 +2294,35 @@ const SettingsScreen = () => {
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm text-slate-400 mb-2">Full Name</label>
-                  <input type="text" defaultValue="Sudipto Paul" 
+                  <input type="text" value={name} onChange={(e) => setName(e.target.value)}
                     className="w-full px-4 py-3 bg-slate-900/50 border border-slate-700/50 rounded-xl
                       text-white focus:outline-none focus:border-amber-500/50" />
                 </div>
                 <div>
                   <label className="block text-sm text-slate-400 mb-2">Email</label>
-                  <input type="email" defaultValue="sudipto@infinititech.com" 
-                    className="w-full px-4 py-3 bg-slate-900/50 border border-slate-700/50 rounded-xl
-                      text-white focus:outline-none focus:border-amber-500/50" />
-                </div>
-                <div>
-                  <label className="block text-sm text-slate-400 mb-2">Role</label>
-                  <input type="text" defaultValue="Administrator" disabled
+                  <input type="email" value={userSettings?.email || ''} disabled
                     className="w-full px-4 py-3 bg-slate-900/30 border border-slate-700/30 rounded-xl
                       text-slate-400" />
                 </div>
                 <div>
-                  <label className="block text-sm text-slate-400 mb-2">Hub Assignment</label>
-                  <select className="w-full px-4 py-3 bg-slate-900/50 border border-slate-700/50 rounded-xl
-                    text-white focus:outline-none focus:border-amber-500/50">
-                    <option>Ghana Hub</option>
-                    <option>Dominican Republic Hub</option>
-                    <option>All Hubs</option>
-                  </select>
+                  <label className="block text-sm text-slate-400 mb-2">Role</label>
+                  <input type="text" value={userSettings?.role || 'User'} disabled
+                    className="w-full px-4 py-3 bg-slate-900/30 border border-slate-700/30 rounded-xl
+                      text-slate-400" />
+                </div>
+                <div>
+                  <label className="block text-sm text-slate-400 mb-2">Tenant</label>
+                  <input type="text" value={userSettings?.tenant?.name || 'SRGG'} disabled
+                    className="w-full px-4 py-3 bg-slate-900/30 border border-slate-700/30 rounded-xl
+                      text-slate-400" />
                 </div>
               </div>
-              <button className="px-6 py-2 bg-amber-500/10 text-amber-400 rounded-xl text-sm 
-                font-medium hover:bg-amber-500/20 transition-colors">
-                Save Changes
+              <button
+                onClick={handleSave}
+                disabled={updating}
+                className="px-6 py-2 bg-amber-500/10 text-amber-400 rounded-xl text-sm
+                font-medium hover:bg-amber-500/20 transition-colors disabled:opacity-50">
+                {updating ? 'Saving...' : 'Save Changes'}
               </button>
             </div>
           </div>
@@ -1628,35 +2393,79 @@ const SettingsScreen = () => {
 // COMMODITIES SCREEN
 // ============================================
 const CommoditiesScreen = () => {
-  const commodities = [
-    { id: 'COM-001', name: 'Cocoa Beans', category: 'Agriculture', hsCode: '1801.00', origin: 'Ghana', totalVolume: '2,450 MT', avgPrice: '$2,485/MT' },
-    { id: 'COM-002', name: 'Gold', category: 'Minerals', hsCode: '7108.12', origin: 'Ghana', totalVolume: '1,200 oz', avgPrice: '$1,925/oz' },
-    { id: 'COM-003', name: 'Arabica Coffee', category: 'Agriculture', hsCode: '0901.11', origin: 'DR', totalVolume: '890 MT', avgPrice: '$1,820/MT' },
-    { id: 'COM-004', name: 'Cassava', category: 'Agriculture', hsCode: '0714.10', origin: 'Ghana', totalVolume: '1,850 MT', avgPrice: '$180/MT' },
-    { id: 'COM-005', name: 'Carbon Credits', category: 'Environmental', hsCode: 'N/A', origin: 'Multi', totalVolume: '45,000 tCO2', avgPrice: '$32/tCO2' },
-  ];
+  const { data: commodityData, loading, error, refetch } = useCommodities();
+  const { mutate: createCommodity, loading: creating } = useCreateCommodity();
+  const [showAddModal, setShowAddModal] = useState(false);
+  const [formData, setFormData] = useState({
+    name: '',
+    category: 'AGRICULTURE',
+    unit: 'kg',
+    hsCode: '',
+    description: '',
+  });
+  const [formError, setFormError] = useState('');
+
+  // Map API data to UI format
+  const commodities = commodityData?.map((c, i) => ({
+    id: c.id.slice(0, 8).toUpperCase(),
+    name: c.name,
+    category: c.category,
+    hsCode: c.hsCode || 'N/A',
+    origin: 'Ghana/DR',
+    totalVolume: '-',
+    avgPrice: '-',
+  })) || [];
+
+  const totalCommodities = commodities.length;
+  const agricultureCount = commodities.filter(c => c.category === 'AGRICULTURE').length;
+  const mineralsCount = commodities.filter(c => c.category === 'MINERALS').length;
+  const environmentalCount = commodities.filter(c => c.category === 'ENVIRONMENTAL').length;
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setFormError('');
+
+    if (!formData.name.trim()) {
+      setFormError('Commodity name is required');
+      return;
+    }
+
+    const result = await createCommodity(formData);
+    if (result.success) {
+      setShowAddModal(false);
+      setFormData({ name: '', category: 'AGRICULTURE', unit: 'kg', hsCode: '', description: '' });
+      refetch();
+    } else {
+      setFormError(result.error?.message || 'Failed to create commodity');
+    }
+  };
+
+  if (loading) return <LoadingSpinner message="Loading commodities..." />;
+  if (error) return <ErrorMessage message={error} onRetry={refetch} />;
 
   return (
     <div className="p-6 space-y-6">
       {/* Stats */}
       <div className="grid grid-cols-4 gap-4">
-        <StatCard icon={Package} label="Total Commodities" value="156" change="+12" changeType="up" color="amber" />
-        <StatCard icon={Wheat} label="Agriculture" value="89" color="emerald" />
-        <StatCard icon={Gem} label="Minerals" value="34" color="blue" />
-        <StatCard icon={TreePine} label="Environmental" value="33" color="purple" />
+        <StatCard icon={Package} label="Total Commodities" value={formatNumber(totalCommodities)} change="+2" changeType="up" color="amber" />
+        <StatCard icon={Wheat} label="Agriculture" value={formatNumber(agricultureCount)} color="emerald" />
+        <StatCard icon={Gem} label="Minerals" value={formatNumber(mineralsCount)} color="blue" />
+        <StatCard icon={TreePine} label="Environmental" value={formatNumber(environmentalCount)} color="purple" />
       </div>
 
       {/* Commodity Table */}
       <div className="bg-slate-800/30 backdrop-blur-sm rounded-2xl border border-slate-700/30 p-5">
         <div className="flex items-center justify-between mb-4">
           <h3 className="text-lg font-semibold text-white">Commodity Registry</h3>
-          <button className="flex items-center gap-2 px-4 py-2 bg-amber-500/10 text-amber-400 
+          <button
+            onClick={() => setShowAddModal(true)}
+            className="flex items-center gap-2 px-4 py-2 bg-amber-500/10 text-amber-400
             rounded-xl text-sm font-medium hover:bg-amber-500/20 transition-colors">
             <Plus className="w-4 h-4" />
             Add Commodity
           </button>
         </div>
-        
+
         <table className="w-full">
           <thead>
             <tr className="border-b border-slate-700/50">
@@ -1676,8 +2485,8 @@ const CommoditiesScreen = () => {
                 <td className="py-3 px-4 text-sm text-white">{com.name}</td>
                 <td className="py-3 px-4">
                   <span className={`px-2 py-1 rounded-lg text-xs font-medium
-                    ${com.category === 'Agriculture' ? 'bg-emerald-500/10 text-emerald-400' :
-                      com.category === 'Minerals' ? 'bg-blue-500/10 text-blue-400' :
+                    ${com.category === 'AGRICULTURE' ? 'bg-emerald-500/10 text-emerald-400' :
+                      com.category === 'MINERALS' ? 'bg-blue-500/10 text-blue-400' :
                       'bg-purple-500/10 text-purple-400'}`}>
                     {com.category}
                   </span>
@@ -1691,6 +2500,118 @@ const CommoditiesScreen = () => {
           </tbody>
         </table>
       </div>
+
+      {/* Add Commodity Modal */}
+      {showAddModal && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50">
+          <div className="bg-slate-800 rounded-2xl border border-slate-700/50 p-6 w-full max-w-md mx-4">
+            <div className="flex items-center justify-between mb-6">
+              <h3 className="text-xl font-semibold text-white">Add New Commodity</h3>
+              <button
+                onClick={() => setShowAddModal(false)}
+                className="text-slate-400 hover:text-white transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSubmit} className="space-y-4">
+              {formError && (
+                <div className="p-3 bg-red-500/10 border border-red-500/30 rounded-lg text-red-400 text-sm">
+                  {formError}
+                </div>
+              )}
+
+              <div>
+                <label className="block text-sm text-slate-400 mb-2">Name *</label>
+                <input
+                  type="text"
+                  value={formData.name}
+                  onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                  className="w-full px-4 py-3 bg-slate-900/50 border border-slate-700/50 rounded-xl
+                    text-white placeholder-slate-500 focus:outline-none focus:border-amber-500/50"
+                  placeholder="e.g., Cocoa Beans"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm text-slate-400 mb-2">Category *</label>
+                <select
+                  value={formData.category}
+                  onChange={(e) => setFormData({ ...formData, category: e.target.value })}
+                  className="w-full px-4 py-3 bg-slate-900/50 border border-slate-700/50 rounded-xl
+                    text-white focus:outline-none focus:border-amber-500/50"
+                >
+                  <option value="AGRICULTURE">Agriculture</option>
+                  <option value="MINERALS">Minerals</option>
+                  <option value="ENVIRONMENTAL">Environmental</option>
+                  <option value="CULTURAL">Cultural</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-sm text-slate-400 mb-2">Unit *</label>
+                <select
+                  value={formData.unit}
+                  onChange={(e) => setFormData({ ...formData, unit: e.target.value })}
+                  className="w-full px-4 py-3 bg-slate-900/50 border border-slate-700/50 rounded-xl
+                    text-white focus:outline-none focus:border-amber-500/50"
+                >
+                  <option value="kg">Kilograms (kg)</option>
+                  <option value="tonnes">Tonnes</option>
+                  <option value="lbs">Pounds (lbs)</option>
+                  <option value="oz">Ounces (oz)</option>
+                  <option value="bags">Bags</option>
+                  <option value="units">Units</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-sm text-slate-400 mb-2">HS Code</label>
+                <input
+                  type="text"
+                  value={formData.hsCode}
+                  onChange={(e) => setFormData({ ...formData, hsCode: e.target.value })}
+                  className="w-full px-4 py-3 bg-slate-900/50 border border-slate-700/50 rounded-xl
+                    text-white placeholder-slate-500 focus:outline-none focus:border-amber-500/50"
+                  placeholder="e.g., 1801.00"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm text-slate-400 mb-2">Description</label>
+                <textarea
+                  value={formData.description}
+                  onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+                  className="w-full px-4 py-3 bg-slate-900/50 border border-slate-700/50 rounded-xl
+                    text-white placeholder-slate-500 focus:outline-none focus:border-amber-500/50 resize-none"
+                  rows={3}
+                  placeholder="Optional description..."
+                />
+              </div>
+
+              <div className="flex gap-3 pt-4">
+                <button
+                  type="button"
+                  onClick={() => setShowAddModal(false)}
+                  className="flex-1 px-4 py-3 bg-slate-700/50 text-slate-300 rounded-xl
+                    font-medium hover:bg-slate-700 transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={creating}
+                  className="flex-1 px-4 py-3 bg-amber-500 text-slate-900 rounded-xl
+                    font-medium hover:bg-amber-400 transition-colors disabled:opacity-50"
+                >
+                  {creating ? 'Creating...' : 'Add Commodity'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

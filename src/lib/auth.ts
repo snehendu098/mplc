@@ -11,6 +11,7 @@ export interface TokenPayload {
   tenantId: string;
   role: string;
   permissions: string[];
+  [key: string]: unknown;
 }
 
 // Password hashing
@@ -46,7 +47,8 @@ export async function verifyToken(token: string): Promise<TokenPayload | null> {
 }
 
 // Session management
-export async function createSession(userId: string, token: string, metadata?: any) {
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+export async function createSession(userId: string, token: string, _metadata?: unknown) {
   const expiresAt = new Date();
   expiresAt.setDate(expiresAt.getDate() + 7); // 7 days
 
@@ -55,8 +57,6 @@ export async function createSession(userId: string, token: string, metadata?: an
       userId,
       token,
       expiresAt,
-      ipAddress: metadata?.ipAddress,
-      userAgent: metadata?.userAgent,
     },
   });
 }

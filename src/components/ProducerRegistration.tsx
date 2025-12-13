@@ -4,8 +4,9 @@ import React, { useState } from 'react';
 import {
   User, MapPin, FileText, Fingerprint, CheckCircle2, ChevronRight,
   Upload, Camera, Globe, Phone, Mail, Building, Calendar, ArrowLeft,
-  Shield, Award, Wheat, Gem, Music, TreePine, X, Check, LucideIcon
+  Shield, Award, Wheat, Gem, Music, TreePine, X, Check, LucideIcon, Loader2
 } from 'lucide-react';
+import { apiClient } from '@/lib/api-client';
 
 // ============================================
 // PRODUCER REGISTRATION FLOW
@@ -56,6 +57,9 @@ interface FormData {
 const ProducerRegistrationFlow = () => {
   const [currentStep, setCurrentStep] = useState(1);
   const [producerType, setProducerType] = useState<ProducerTypeId | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
+  const [submitSuccess, setSubmitSuccess] = useState(false);
   const [formData, setFormData] = useState<FormData>({
     // Basic Info
     fullName: '',
@@ -122,6 +126,54 @@ const ProducerRegistrationFlow = () => {
 
   const nextStep = () => setCurrentStep(prev => Math.min(prev + 1, 8));
   const prevStep = () => setCurrentStep(prev => Math.max(prev - 1, 1));
+
+  const handleSubmit = async () => {
+    setIsSubmitting(true);
+    setSubmitError(null);
+
+    try {
+      // Map form data to API schema
+      const apiData = {
+        fullName: formData.fullName,
+        email: formData.email,
+        phone: formData.phone,
+        dateOfBirth: formData.dateOfBirth || undefined,
+        gender: formData.gender as 'male' | 'female' | 'other' | undefined,
+        nationality: formData.nationality || undefined,
+        country: formData.country,
+        region: formData.region,
+        city: formData.city,
+        address: formData.address || undefined,
+        postalCode: formData.postalCode || undefined,
+        gpsCoordinates: formData.gpsCoordinates || undefined,
+        idType: formData.idType as 'national_id' | 'passport' | 'voters_id' | 'drivers_license',
+        idNumber: formData.idNumber,
+        producerType: (producerType?.toUpperCase() || 'FARMER') as 'FARMER' | 'MINER' | 'ARTISAN' | 'COOPERATIVE' | 'ENVIRONMENTAL',
+        businessName: formData.businessName || undefined,
+        yearsExperience: formData.yearsExperience || undefined,
+        commodities: formData.commodities,
+        parcels: formData.parcels.map(p => ({
+          name: p.location,
+          size: parseFloat(p.size) || 0,
+          unit: 'hectares' as const,
+          location: p.location,
+        })),
+        biometricConsent: formData.biometricConsent,
+      };
+
+      const response = await apiClient.createProducer(apiData);
+
+      if (response.success) {
+        setSubmitSuccess(true);
+      } else {
+        setSubmitError(response.error?.message || 'Registration failed. Please try again.');
+      }
+    } catch (error) {
+      setSubmitError(error instanceof Error ? error.message : 'An unexpected error occurred');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
 
   const getColorClasses = (color: string, isSelected: boolean) => {
     const colors: Record<string, { bg: string; border: string; text: string; ring: string }> = {
@@ -934,6 +986,13 @@ const ProducerRegistrationFlow = () => {
           {renderStep()}
         </div>
 
+        {/* Error Display */}
+        {submitError && (
+          <div className="mt-4 p-4 bg-red-500/10 border border-red-500/20 rounded-xl text-red-400 text-sm">
+            <strong>Error:</strong> {submitError}
+          </div>
+        )}
+
         {/* Navigation */}
         <div className="flex items-center justify-between mt-6">
           <button
@@ -960,12 +1019,31 @@ const ProducerRegistrationFlow = () => {
               Continue
               <ChevronRight className="w-4 h-4" />
             </button>
-          ) : (
-            <button className="flex items-center gap-2 px-8 py-3 bg-gradient-to-r from-emerald-500
-              to-emerald-600 rounded-xl font-medium text-white hover:from-emerald-400
-              hover:to-emerald-500 transition-all shadow-lg shadow-emerald-500/20">
+          ) : submitSuccess ? (
+            <div className="flex items-center gap-2 px-8 py-3 bg-emerald-500/20 rounded-xl text-emerald-400">
               <CheckCircle2 className="w-5 h-5" />
-              Submit Registration
+              Registration Submitted Successfully!
+            </div>
+          ) : (
+            <button
+              onClick={handleSubmit}
+              disabled={isSubmitting}
+              className={`flex items-center gap-2 px-8 py-3 bg-gradient-to-r from-emerald-500
+                to-emerald-600 rounded-xl font-medium text-white hover:from-emerald-400
+                hover:to-emerald-500 transition-all shadow-lg shadow-emerald-500/20
+                ${isSubmitting ? 'opacity-50 cursor-not-allowed' : ''}`}
+            >
+              {isSubmitting ? (
+                <>
+                  <Loader2 className="w-5 h-5 animate-spin" />
+                  Submitting...
+                </>
+              ) : (
+                <>
+                  <CheckCircle2 className="w-5 h-5" />
+                  Submit Registration
+                </>
+              )}
             </button>
           )}
         </div>

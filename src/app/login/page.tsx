@@ -26,7 +26,7 @@ export default function LoginPage() {
       const data = await res.json();
 
       if (!data.success) {
-        setError(data.error?.message || 'Login failed');
+        setError(data.error || 'Login failed');
         setLoading(false);
         return;
       }
@@ -34,6 +34,9 @@ export default function LoginPage() {
       // Store token in localStorage
       localStorage.setItem('token', data.data.token);
       localStorage.setItem('user', JSON.stringify(data.data.user));
+
+      // Also set token as cookie for middleware auth
+      document.cookie = `token=${data.data.token}; path=/; max-age=${7 * 24 * 60 * 60}; SameSite=Lax`;
 
       // Redirect based on role
       const role = data.data.user.role;

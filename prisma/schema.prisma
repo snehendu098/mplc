@@ -1,5 +1,5 @@
-// SRGG Marketplace - Standalone SQLite Schema
-// No Docker required!
+// SRGG Marketplace - Complete Production Schema
+// Multi-tenant commodity marketplace with tokenization, insurance, and hedging
 
 generator client {
   provider = "prisma-client-js"
@@ -10,7 +10,10 @@ datasource db {
   url      = "file:./dev.db"
 }
 
-// Core System
+// ============================================
+// CORE SYSTEM
+// ============================================
+
 model Tenant {
   id        String   @id @default(cuid())
   name      String
@@ -21,10 +24,15 @@ model Tenant {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  users       User[]
-  producers   Producer[]
-  listings    Listing[]
-  orders      Order[]
+  users           User[]
+  producers       Producer[]
+  listings        Listing[]
+  orders          Order[]
+  validations     Validation[]
+  insurancePolicies InsurancePolicy[]
+  hedgePositions  HedgePosition[]
+  shipments       Shipment[]
+  notifications   Notification[]
 }
 
 model User {
@@ -37,14 +45,17 @@ model User {
   role          String    @default("PRODUCER")
   permissions   String    @default("[]")
   status        String    @default("ACTIVE")
+  avatar        String?
+  settings      String    @default("{}")
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
   lastLoginAt   DateTime?
 
-  tenant    Tenant     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  producer  Producer?
-  orders    Order[]
-  sessions  Session[]
+  tenant        Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  producer      Producer?
+  orders        Order[]
+  sessions      Session[]
+  notifications Notification[]
 
   @@unique([tenantId, email])
 }
@@ -59,35 +70,47 @@ model Session {
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
+// ============================================
+// PRODUCERS & ASSETS
+// ============================================
+
 model Producer {
   id                 String   @id @default(cuid())
   tenantId           String
   userId             String   @unique
   srggEid            String   @unique
-  type               String
+  type               String   // FARMER, MINER, ARTISAN, COOPERATIVE, ENVIRONMENTAL
   name               String
   phone              String
   email              String?
+  country            String   @default("GH")
+  region             String?
+  city               String?
   rating             Float?   @default(0)
-  verificationStatus String   @default("PENDING")
+  totalVolume        Float    @default(0)
+  verificationStatus String   @default("PENDING") // PENDING, VERIFIED, REJECTED
+  kycData            String   @default("{}")
   createdAt          DateTime @default(now())
   updatedAt          DateTime @updatedAt
 
-  tenant   Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  user     User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-  listings Listing[]
-  parcels  Parcel[]
+  tenant     Tenant      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user       User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  listings   Listing[]
+  parcels    Parcel[]
+  validations Validation[]
 }
 
 model Parcel {
-  id          String   @id @default(cuid())
-  producerId  String
+  id           String   @id @default(cuid())
+  producerId   String
   parcelNumber String
-  area        Float
-  unit        String   @default("hectares")
-  location    String   @default("{}")
-  ownership   String
-  createdAt   DateTime @default(now())
+  name         String?
+  area         Float
+  unit         String   @default("hectares")
+  location     String   @default("{}")
+  gpsCoords    String?
+  ownership    String
+  createdAt    DateTime @default(now())
 
   producer Producer @relation(fields: [producerId], references: [id], onDelete: Cascade)
 }
@@ -95,13 +118,21 @@ model Parcel {
 model Commodity {
   id          String   @id @default(cuid())
   name        String   @unique
-  category    String
+  category    String   // Agriculture, Minerals, Environmental, Cultural
   unit        String
+  hsCode      String?
   description String?
+  icon        String?
   createdAt   DateTime @default(now())
 
-  listings Listing[]
+  listings    Listing[]
+  validations Validation[]
+  hedgePositions HedgePosition[]
 }
+
+// ============================================
+// LISTINGS & ORDERS
+// ============================================
 
 model Listing {
   id           String   @id @default(cuid())
@@ -115,9 +146,14 @@ model Listing {
   pricePerUnit Float
   totalPrice   Float
   currency     String   @default("USD")
-  status       String   @default("DRAFT")
+  status       String   @default("DRAFT") // DRAFT, PENDING, ACTIVE, SOLD, CANCELLED
   location     String   @default("{}")
   images       String   @default("[]")
+  origin       String?
+  grade        String?
+  isVerified   Boolean  @default(false)
+  isInsured    Boolean  @default(false)
+  isTokenized  Boolean  @default(false)
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
@@ -126,39 +162,244 @@ model Listing {
   commodity Commodity @relation(fields: [commodityId], references: [id])
   orders    Order[]
   tokens    Token[]
+  validations Validation[]
+  insurancePolicies InsurancePolicy[]
 }
 
 model Order {
-  id            String   @id @default(cuid())
-  tenantId      String
-  orderNumber   String   @unique
-  buyerId       String
-  listingId     String
-  quantity      Float
-  pricePerUnit  Float
-  totalPrice    Float
-  currency      String
-  status        String   @default("PENDING")
-  paymentStatus String   @default("PENDING")
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  id              String   @id @default(cuid())
+  tenantId        String
+  orderNumber     String   @unique
+  buyerId         String
+  listingId       String
+  quantity        Float
+  pricePerUnit    Float
+  totalPrice      Float
+  currency        String
+  status          String   @default("PENDING") // PENDING, CONFIRMED, PROCESSING, SHIPPED, DELIVERED, COMPLETED, CANCELLED
+  paymentStatus   String   @default("PENDING") // PENDING, PROCESSING, COMPLETED, FAILED, REFUNDED
+  shippingAddress String   @default("{}")
+  trackingNumber  String?
+  notes           String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
 
-  tenant   Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  buyer    User     @relation(fields: [buyerId], references: [id])
-  listing  Listing  @relation(fields: [listingId], references: [id])
-  payments Payment[]
+  tenant    Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  buyer     User      @relation(fields: [buyerId], references: [id])
+  listing   Listing   @relation(fields: [listingId], references: [id])
+  payments  Payment[]
+  shipments Shipment[]
 }
 
+// ============================================
+// TOKENIZATION
+// ============================================
+
 model Token {
-  id        String   @id @default(cuid())
-  listingId String
-  tokenType String
-  owner     String
-  status    String   @default("ACTIVE")
-  metadata  String   @default("{}")
-  createdAt DateTime @default(now())
+  id            String   @id @default(cuid())
+  tokenId       String   @unique
+  listingId     String
+  tokenType     String   // NFT, FUNGIBLE
+  totalSupply   Float    @default(1)
+  owner         String
+  contractAddress String?
+  blockchain    String   @default("Polygon")
+  metadata      String   @default("{}")
+  status        String   @default("PENDING") // PENDING, MINTED, ACTIVE, BURNED
+  mintedAt      DateTime?
+  createdAt     DateTime @default(now())
 
   listing Listing @relation(fields: [listingId], references: [id])
+}
+
+// ============================================
+// VALIDATION & CERTIFICATION
+// ============================================
+
+model Validation {
+  id           String    @id @default(cuid())
+  tenantId     String
+  validationId String    @unique
+  type         String    // LAB_TEST, PORT_INSPECTION, ORIGIN_VERIFICATION, CARBON_AUDIT, QUALITY_TEST
+  producerId   String?
+  listingId    String?
+  commodityId  String?
+  assetName    String
+  priority     String    @default("MEDIUM") // LOW, MEDIUM, HIGH
+  status       String    @default("QUEUED") // QUEUED, IN_PROGRESS, COMPLETED, FAILED
+  results      String    @default("{}")
+  notes        String?
+  assignedTo   String?
+  eta          String?
+  completedAt  DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  tenant    Tenant     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  producer  Producer?  @relation(fields: [producerId], references: [id])
+  listing   Listing?   @relation(fields: [listingId], references: [id])
+  commodity Commodity? @relation(fields: [commodityId], references: [id])
+  certificates Certificate[]
+}
+
+model Certificate {
+  id                String    @id @default(cuid())
+  certificateNumber String    @unique
+  validationId      String?
+  type              String    // QUALITY, ORIGIN, ORGANIC, FAIR_TRADE, CARBON
+  issuedTo          String
+  issuedBy          String
+  issuedAt          DateTime  @default(now())
+  expiresAt         DateTime?
+  status            String    @default("ACTIVE") // ACTIVE, EXPIRED, REVOKED
+  documentUrl       String?
+  metadata          String    @default("{}")
+
+  validation Validation? @relation(fields: [validationId], references: [id])
+}
+
+// ============================================
+// INSURANCE
+// ============================================
+
+model InsurancePolicy {
+  id             String   @id @default(cuid())
+  tenantId       String
+  policyNumber   String   @unique
+  type           String   // CROP, LIVESTOCK, MARITIME, MINERAL, CARBON, CULTURAL_IP, SUPPLY_CHAIN
+  listingId      String?
+  assetName      String
+  assetType      String   // LISTING, PRODUCER, SHIPMENT
+  coverageAmount Float
+  premium        Float
+  currency       String   @default("USD")
+  provider       String   @default("Lloyd's of London")
+  coverageStart  DateTime
+  coverageEnd    DateTime
+  status         String   @default("PENDING") // PENDING, ACTIVE, EXPIRED, CLAIMED, CANCELLED
+  terms          String   @default("{}")
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  tenant  Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  listing Listing? @relation(fields: [listingId], references: [id])
+  claims  InsuranceClaim[]
+}
+
+model InsuranceClaim {
+  id          String    @id @default(cuid())
+  policyId    String
+  claimNumber String    @unique
+  amount      Float
+  reason      String
+  status      String    @default("PENDING") // PENDING, UNDER_REVIEW, APPROVED, REJECTED, PAID
+  evidence    String    @default("[]")
+  resolution  String?
+  resolvedAt  DateTime?
+  createdAt   DateTime  @default(now())
+
+  policy InsurancePolicy @relation(fields: [policyId], references: [id])
+}
+
+// ============================================
+// HEDGING & FUTURES
+// ============================================
+
+model HedgePosition {
+  id           String    @id @default(cuid())
+  tenantId     String
+  positionId   String    @unique
+  commodityId  String
+  commodity    String    // Commodity name for display
+  type         String    // FORWARD, FUTURES, OPTIONS, SWAP
+  direction    String    // LONG, SHORT
+  quantity     Float
+  unit         String
+  strikePrice  Float
+  currentPrice Float?
+  currency     String    @default("USD")
+  expiryDate   DateTime
+  pnl          Float     @default(0)
+  status       String    @default("OPEN") // OPEN, CLOSED, EXPIRED, EXERCISED
+  exchange     String    @default("CME")
+  contractId   String?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  tenant       Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  commodityRef Commodity @relation(fields: [commodityId], references: [id])
+}
+
+// ============================================
+// LOGISTICS & SHIPPING
+// ============================================
+
+model Shipment {
+  id             String    @id @default(cuid())
+  tenantId       String
+  shipmentId     String    @unique
+  orderId        String?
+  cargo          String
+  quantity       Float?
+  unit           String?
+  origin         String
+  originPort     String?
+  destination    String
+  destinationPort String?
+  vessel         String?
+  vesselType     String?   // SHIP, AIRCRAFT, TRUCK, RAIL
+  status         String    @default("PENDING") // PENDING, LOADING, IN_TRANSIT, CUSTOMS, DELIVERED
+  eta            String?
+  actualDelivery DateTime?
+  trackingEvents String    @default("[]")
+  documents      String    @default("[]")
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  order  Order? @relation(fields: [orderId], references: [id])
+}
+
+model Port {
+  id          String   @id @default(cuid())
+  name        String   @unique
+  code        String   @unique
+  country     String
+  city        String
+  type        String   // SEA, AIR, LAND
+  status      String   @default("OPERATIONAL")
+  congestion  String   @default("LOW") // LOW, MEDIUM, HIGH
+  containers  Int      @default(0)
+  coordinates String?
+  createdAt   DateTime @default(now())
+}
+
+// ============================================
+// NOTIFICATIONS & ANALYTICS
+// ============================================
+
+model Notification {
+  id        String   @id @default(cuid())
+  tenantId  String
+  userId    String
+  type      String   // ORDER, PAYMENT, VALIDATION, INSURANCE, HEDGE, SHIPMENT, SYSTEM
+  title     String
+  message   String
+  data      String   @default("{}")
+  isRead    Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model AnalyticsEvent {
+  id        String   @id @default(cuid())
+  type      String
+  category  String
+  value     Float?
+  metadata  String   @default("{}")
+  createdAt DateTime @default(now())
 }
 
 model Payment {
@@ -167,33 +408,11 @@ model Payment {
   paymentNumber String   @unique
   amount        Float
   currency      String   @default("USD")
-  method        String
-  status        String
+  method        String   // CARD, BANK_TRANSFER, MOBILE_MONEY, CRYPTO, ESCROW
+  status        String   @default("PENDING") // PENDING, PROCESSING, COMPLETED, FAILED, REFUNDED
+  transactionId String?
+  metadata      String   @default("{}")
   createdAt     DateTime @default(now())
 
   order Order @relation(fields: [orderId], references: [id])
-}
-
-model Certificate {
-  id                String   @id @default(cuid())
-  certificateNumber String   @unique
-  type              String
-  issuedTo          String
-  issuedBy          String
-  issuedAt          DateTime @default(now())
-  expiresAt         DateTime?
-  status            String   @default("ACTIVE")
-  metadata          String   @default("{}")
-}
-
-model InsurancePolicy {
-  id            String   @id @default(cuid())
-  policyNumber  String   @unique
-  insuredValue  Float
-  premium       Float
-  currency      String   @default("USD")
-  coverageStart DateTime
-  coverageEnd   DateTime
-  status        String   @default("ACTIVE")
-  createdAt     DateTime @default(now())
 }
