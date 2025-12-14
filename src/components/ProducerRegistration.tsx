@@ -209,8 +209,8 @@ const ProducerRegistrationFlow = () => {
     return colors[color] || 'bg-amber-500/20';
   };
 
-  // Step 1: Producer Type Selection
-  const ProducerTypeStep = () => (
+  // Step 1: Producer Type Selection - rendered inline to prevent re-creation
+  const renderProducerTypeStep = () => (
     <div className="space-y-6">
       <div className="text-center mb-8">
         <h2 className="text-2xl font-bold text-white mb-2">Select Producer Type</h2>
@@ -550,8 +550,8 @@ const ProducerRegistrationFlow = () => {
     </div>
   );
 
-  // Step 5: Commodities Selection
-  const CommoditiesStep = () => {
+  // Step 5: Commodities Selection - rendered inline to prevent re-creation
+  const renderCommoditiesStep = () => {
     const availableCommodities = producerType ? commodityOptions[producerType] : [];
 
     return (
@@ -616,7 +616,7 @@ const ProducerRegistrationFlow = () => {
           <label className="block text-sm text-slate-400 mb-2">Years of Experience</label>
           <select
             value={formData.yearsExperience}
-            onChange={(e) => setFormData(prev => ({ ...prev, yearsExperience: e.target.value }))}
+            onChange={(e) => handleFieldChange('yearsExperience', e.target.value)}
             className="w-full px-4 py-3 bg-slate-900/50 border border-slate-700/50 rounded-xl
               text-white focus:outline-none focus:border-amber-500/50"
           >
@@ -631,8 +631,8 @@ const ProducerRegistrationFlow = () => {
     );
   };
 
-  // Step 6: Asset Registration (Parcels/Land)
-  const AssetsStep = () => (
+  // Step 6: Asset Registration (Parcels/Land) - rendered inline to prevent re-creation
+  const renderAssetsStep = () => (
     <div className="space-y-6">
       <div className="text-center mb-8">
         <h2 className="text-2xl font-bold text-white mb-2">
@@ -726,8 +726,8 @@ const ProducerRegistrationFlow = () => {
     </div>
   );
 
-  // Step 7: Biometrics
-  const BiometricsStep = () => (
+  // Step 7: Biometrics - rendered inline to prevent re-creation
+  const renderBiometricsStep = () => (
     <div className="space-y-6">
       <div className="text-center mb-8">
         <h2 className="text-2xl font-bold text-white mb-2">Biometric Registration</h2>
@@ -781,7 +781,7 @@ const ProducerRegistrationFlow = () => {
           <input
             type="checkbox"
             checked={formData.biometricConsent}
-            onChange={(e) => setFormData(prev => ({ ...prev, biometricConsent: e.target.checked }))}
+            onChange={(e) => handleFieldChange('biometricConsent', e.target.checked)}
             className="mt-1 w-5 h-5 rounded border-slate-700 bg-slate-800 text-amber-500
               focus:ring-amber-500/20"
           />
@@ -802,8 +802,8 @@ const ProducerRegistrationFlow = () => {
     </div>
   );
 
-  // Step 8: Review & Submit
-  const ReviewStep = () => (
+  // Step 8: Review & Submit - rendered inline to prevent re-creation
+  const renderReviewStep = () => (
     <div className="space-y-6">
       <div className="text-center mb-8">
         <h2 className="text-2xl font-bold text-white mb-2">Review & Submit</h2>
@@ -920,15 +920,15 @@ const ProducerRegistrationFlow = () => {
 
   const renderStep = () => {
     switch (currentStep) {
-      case 1: return <ProducerTypeStep />;
+      case 1: return renderProducerTypeStep();
       case 2: return renderPersonalInfoStep();
       case 3: return renderLocationStep();
       case 4: return renderIdentityStep();
-      case 5: return <CommoditiesStep />;
-      case 6: return <AssetsStep />;
-      case 7: return <BiometricsStep />;
-      case 8: return <ReviewStep />;
-      default: return <ProducerTypeStep />;
+      case 5: return renderCommoditiesStep();
+      case 6: return renderAssetsStep();
+      case 7: return renderBiometricsStep();
+      case 8: return renderReviewStep();
+      default: return renderProducerTypeStep();
     }
   };
 
