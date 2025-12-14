@@ -585,14 +585,22 @@ const MarketplaceScreen = () => {
 
   const categories = [
     { id: 'all', label: 'All Assets', icon: Layers },
-    { id: 'AGRICULTURE', label: 'Agriculture', icon: Wheat },
-    { id: 'MINERALS', label: 'Minerals', icon: Gem },
-    { id: 'ENVIRONMENTAL', label: 'Carbon Credits', icon: TreePine },
-    { id: 'CULTURAL', label: 'Cultural IP', icon: Music },
+    { id: 'Agriculture', label: 'Agriculture', icon: Wheat },
+    { id: 'Minerals', label: 'Minerals', icon: Gem },
+    { id: 'Environmental', label: 'Carbon Credits', icon: TreePine },
+    { id: 'Cultural', label: 'Cultural IP', icon: Music },
   ];
 
-  // Map API data to UI format with category icons
+  // Map API data to UI format with category icons (case-insensitive)
   const categoryIcons: Record<string, string> = {
+    'Agriculture': '🌾',
+    'Minerals': '💎',
+    'Environmental': '🌳',
+    'Cultural': '🎨',
+    'agriculture': '🌾',
+    'minerals': '💎',
+    'environmental': '🌳',
+    'cultural': '🎨',
     'AGRICULTURE': '🌾',
     'MINERALS': '💎',
     'ENVIRONMENTAL': '🌳',
@@ -661,7 +669,7 @@ const MarketplaceScreen = () => {
 
   const filteredListings = selectedCategory === 'all'
     ? listings
-    : listings.filter(l => l.category === selectedCategory);
+    : listings.filter(l => l.category.toLowerCase() === selectedCategory.toLowerCase());
 
   if (loading) return <LoadingSpinner message="Loading marketplace..." />;
   if (error) return <ErrorMessage message={error} onRetry={refetch} />;
