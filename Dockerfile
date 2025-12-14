@@ -12,8 +12,8 @@ WORKDIR /app
 COPY package.json package-lock.json ./
 COPY prisma ./prisma/
 
-# Install dependencies
-RUN npm ci --only=production && npm cache clean --force
+# Install ALL dependencies (dev needed for build)
+RUN npm ci && npm cache clean --force
 
 # ============================================
 # Stage 2: Builder
